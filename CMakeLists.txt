@@ -1,0 +1,52 @@
+# https://cmake.org/Wiki/CMake/Tutorials/How_to_create_a_ProjectConfig.cmake_file
+
+CMAKE_MINIMUM_REQUIRED(VERSION 3.1)
+
+PROJECT(Ufw VERSION 0.0.1 LANGUAGES "CXX")
+
+
+SET(CMAKE_CXX_STANDARD 14)
+
+IF(NOT WINDOWS)
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pedantic -Wall -Wextra -Werror" )
+ENDIF()
+
+SET(CMAKE_BUILD_TYPE Release CACHE STRING "Project build type" FORCE)
+SET(CMAKE_VERBOSE_MAKEFILE "ON" CACHE BOOL "Whether or not the generated makefile should print command lines")
+
+INCLUDE_DIRECTORIES("${PROJECT_SOURCE_DIR}" "${PROJECT_BINARY_DIR}")
+
+SET(CMAKE_SKIP_BUILD_RPATH FALSE)
+SET(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE) 
+SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+
+IF(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    SET(CMAKE_INSTALL_PREFIX "${PROJECT_BINARY_DIR}/install" CACHE PATH "Project installation prefix" FORCE)
+ENDIF()
+
+SET(INSTALL_LIB_DIR lib CACHE PATH "Installation directory for libraries")
+SET(INSTALL_BIN_DIR bin CACHE PATH "Installation directory for executables")
+SET(INSTALL_INCLUDE_DIR include CACHE PATH "Installation directory for header files")
+IF(WIN32 AND NOT CYGWIN)
+    SET(DEF_INSTALL_CMAKE_DIR CMake)
+ELSE()
+    SET(DEF_INSTALL_CMAKE_DIR lib/CMake/Ufw)
+ENDIF()
+
+SET(INSTALL_CMAKE_DIR ${DEF_INSTALL_CMAKE_DIR} CACHE PATH "Installation directory for CMake files")
+
+IF(UNIX AND NOT APPLE)
+    IF(NOT IS_ABSOLUTE "${${var}}")
+        SET(CMAKE_INSTALL_RPATH "$ORIGIN/../${INSTALL_LIB_DIR}")
+    ENDIF()
+ENDIF()
+ 
+FOREACH(p LIB BIN INCLUDE CMAKE)
+    SET(var INSTALL_${p}_DIR)
+    IF(NOT IS_ABSOLUTE "${${var}}")
+        SET(${var} "${CMAKE_INSTALL_PREFIX}/${${var}}")
+    ENDIF()
+ENDFOREACH()
+
+
+ADD_SUBDIRECTORY(sandbox)
