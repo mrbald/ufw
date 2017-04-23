@@ -12,7 +12,6 @@ IF(NOT WINDOWS)
 ENDIF()
 
 SET(CMAKE_BUILD_TYPE Release CACHE STRING "Project build type" FORCE)
-SET(CMAKE_VERBOSE_MAKEFILE "ON" CACHE BOOL "Whether or not the generated makefile should print command lines")
 
 INCLUDE_DIRECTORIES("${PROJECT_SOURCE_DIR}" "${PROJECT_BINARY_DIR}")
 
@@ -50,3 +49,4 @@ ENDFOREACH()
 
 
 ADD_SUBDIRECTORY(sandbox)
+ADD_SUBDIRECTORY(benchmarks)
