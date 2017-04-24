@@ -15,7 +15,7 @@ IF(benchmark_FOUND)
             benchmark::benchmark
             sandbox_capnp)
 
-    ADD_CUSTOM_TARGET(run-benchmarks ufw_benchmarks DEPENDS ufw_benchmarks USES_TERMINAL)
+    ADD_CUSTOM_TARGET(benchmark ufw_benchmarks DEPENDS ufw_benchmarks USES_TERMINAL)
 
 ELSE()
     MESSAGE(STATUS "benchmarks disabled (google.benchmark not found)")
