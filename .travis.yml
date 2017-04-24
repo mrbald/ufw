@@ -7,3 +7,7 @@ script: |
     cmake ..
     cmake --build .
     cmake --build . --target test
+addons:
+    apt:
+        sources: ['george-edison55-precise-backports']
+        packages: [ 'g++-5', 'libstdc++-5-dev', 'cmake', 'cmake-data']
