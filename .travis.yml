@@ -4,7 +4,6 @@ branches: {only: ['master']}
 
 script: |
   #!/bin/bash
-  set -eu
 
   g++ --version
 
