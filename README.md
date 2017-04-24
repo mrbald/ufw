@@ -1,3 +1,5 @@
+[![build](https://api.travis-ci.org/mrbald/ufw.svg?branch=master)](https://travis-ci.org/mrbald/ufw)
+
 # uFW - Micro Framework
 A minimalistic framework for rapid server side applications prototyping and experimental work.
 Additionally the framework is an example of tested and benchmarked CMake-based C++ software package.
