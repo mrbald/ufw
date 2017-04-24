@@ -1,0 +1,9 @@
+language: cpp
+script: |
+    #!/bin/bash
+    set -eu
+    mkdir build
+    cd build
+    cmake
+    cmake --build .
+    cmake --build . --target test
