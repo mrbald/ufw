@@ -4,6 +4,6 @@ script: |
     set -eu
     mkdir build
     cd build
-    cmake
+    cmake ..
     cmake --build .
     cmake --build . --target test
