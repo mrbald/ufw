@@ -15,3 +15,5 @@ TARGET_LINK_LIBRARIES(ufw_tests
         boost_unit_test_framework)
 
 ADD_CUSTOM_TARGET(unit-test ufw_tests DEPENDS ufw_tests USES_TERMINAL)
+
+ADD_TEST(ctest_ufw_tests "${CMAKE_COMMAND}" --build ${CMAKE_BINARY_DIR} --target unit-test)
