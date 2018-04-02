@@ -6,4 +6,3 @@ script: |
   #!/bin/bash
 
   g++ --version
-

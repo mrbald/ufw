@@ -1,33 +1,44 @@
 FIND_PACKAGE(Boost REQUIRED)
 
 # Cap'n'Proto generated library example
-FIND_PACKAGE(CapnProto REQUIRED)
 
-SET(CAPNP_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR})
+IF(CapnProto_DIR)
+    FIND_PACKAGE(CapnProto PATHS "${CapnProto_DIR}" QUIET)
+ELSE(CapnProto_DIR)
+    FIND_PACKAGE(CapnProto QUIET)
+ENDIF(CapnProto_DIR)
 
-CAPNP_GENERATE_CPP(CAPNP_SRCS CAPNP_HDRS "sandbox.capnp")
+IF (CapnProto_FOUND)
+    MESSAGE(STATUS "capnp enabled (using capnp ${CapnProto_VERSION} from ${CapnProto_DIR})")
 
-ADD_LIBRARY(sandbox_capnp STATIC ${CAPNP_SRCS} ${CAPNP_HDRS})
+    SET(CAPNP_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
-TARGET_LINK_LIBRARIES(sandbox_capnp
-    INTERFACE CapnProto::capnp CapnProto::capnp-json)
+    CAPNP_GENERATE_CPP(CAPNP_SRCS CAPNP_HDRS "sandbox.capnp")
 
-TARGET_INCLUDE_DIRECTORIES(sandbox_capnp
-    PUBLIC "${CAPNP_OUTPUT_DIR}")
+    ADD_LIBRARY(sandbox_capnp STATIC ${CAPNP_SRCS} ${CAPNP_HDRS})
 
-SET_TARGET_PROPERTIES(sandbox_capnp PROPERTIES
-    PUBLIC_HEADER ${CAPNP_HDRS})
+    TARGET_LINK_LIBRARIES(sandbox_capnp
+        INTERFACE CapnProto::capnp CapnProto::capnp-json)
 
-INSTALL(TARGETS sandbox_capnp EXPORT UfwTargets
-    ARCHIVE DESTINATION "${INSTALL_LIB_DIR}" COMPONENT stlib
-    PUBLIC_HEADER DESTINATION "${INSTALL_INCLUDE_DIR}/sandbox"
-    COMPONENT dev)
-  
-ADD_EXECUTABLE(sandbox
-    main.cpp)
+    TARGET_INCLUDE_DIRECTORIES(sandbox_capnp
+        PUBLIC "${CAPNP_OUTPUT_DIR}")
 
-TARGET_LINK_LIBRARIES(sandbox
-    PRIVATE sandbox_capnp)
+    SET_TARGET_PROPERTIES(sandbox_capnp PROPERTIES
+        PUBLIC_HEADER ${CAPNP_HDRS})
 
-INSTALL(TARGETS sandbox EXPORT UfwTargets
-    RUNTIME DESTINATION "${INSTALL_BIN_DIR}" COMPONENT bin)
+    INSTALL(TARGETS sandbox_capnp EXPORT UfwTargets
+        ARCHIVE DESTINATION "${INSTALL_LIB_DIR}" COMPONENT stlib
+        PUBLIC_HEADER DESTINATION "${INSTALL_INCLUDE_DIR}/sandbox"
+        COMPONENT dev)
+
+    ADD_EXECUTABLE(sandbox
+        main.cpp)
+
+    TARGET_LINK_LIBRARIES(sandbox
+        PRIVATE sandbox_capnp)
+
+    INSTALL(TARGETS sandbox EXPORT UfwTargets
+        RUNTIME DESTINATION "${INSTALL_BIN_DIR}" COMPONENT bin)
+ELSE()
+    MESSAGE(STATUS "capnp sandbox disabled (capnp cmake package not found)")
+ENDIF()

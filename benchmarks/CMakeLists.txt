@@ -12,8 +12,7 @@ IF(benchmark_FOUND)
             main.cpp)
 
     TARGET_LINK_LIBRARIES(ufw_benchmarks
-            benchmark::benchmark
-            sandbox_capnp)
+            benchmark::benchmark)
 
     ADD_CUSTOM_TARGET(benchmark ufw_benchmarks DEPENDS ufw_benchmarks USES_TERMINAL)
 

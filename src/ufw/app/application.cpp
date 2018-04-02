@@ -115,7 +115,7 @@ void application::load(int argc, char const** argv)
     po::options_description desc {"Options"};
     desc.add_options()
         ("help,h", "Print this help message")
-        ("config", po::value<std::string>(&config_file)->default_value(config_file), "application config file")
+        ("config,c", po::value<std::string>(&config_file)->default_value(config_file), "application config file")
     ;
 
     po::variables_map vm;
