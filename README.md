@@ -118,7 +118,7 @@ $ make -j$(nproc) && sudo make install
 
     $ git clone https://github.com/mrbald/ufw.git
     $ mkdir ufw-build && cd ufw-build
-    $ cmake -DCMAKE_BUILD_TYPE=Release ../ufw
+    $ cmake -DCMAKE_BUILD_TYPE=Release [-DCMAKE_INSTALL_PREFIX=$HOME/local] ../ufw
     $ make -j$(nproc)
 
 ### Running tests
