@@ -17,10 +17,6 @@
 
 namespace ufw {
 
-struct library_config {
-    std::string filename;
-};
-
 /* 
  * Dynamic Library Abstraction
  */
