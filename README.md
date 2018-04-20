@@ -4,6 +4,8 @@
 A minimalist framework for rapid server side applications prototyping and experimental work.
 Additionally the framework is an example of tested and benchmarked CMake-based C++ software package.
 
+![screenshot](screenshot.png)
+
 ## Introduction
 
 ### Design Goals
