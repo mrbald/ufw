@@ -34,20 +34,18 @@ application:
         Asynchronous=true
         AutoFlush=true
 
-    # ====== loaders ======
-    - name: FIX_SESSION
+    # ====== a dynamic library ======
+    - name: example_lib
+      loader_ref: LIBRARY
       config:
-        config_file: quickfix.properties
+        filename: libexample.so
 
-    # ====== managed FIX sessions ======
-    - name: ECN
-      loader_ref: FIX_SESSION
+    # ====== an entity -- plugin from a dynamic library ======
+    - name: example_plugin
+      loader_ref: PLUGIN
       config:
-        handler_ref: FIX_ROUTER
-        begin_string: FIX.4.4
-        sender_comp_id: CID_ROUTER
-        target_comp_id: CID_ECN
-        forward_exception_text: true
+        library_ref: example_lib
+        constructor: example_ctor
 ...
 
 ```
@@ -74,6 +72,11 @@ application:
 * *default_loader* - a special "seed" loader used by application to load entities by name (including other loaders)
 * whether or not an _entity_ is loaded with _loader_ is specified in the config (flexibility!)
 * _entities_ can be added to application programmatically without _loaders_ (e.g. *default_loader*)
+
+Pre-packaged and pre-instantiated loaders
+
+* LIBRARY - loader for shared libary
+* PLUGIN - loader for entities from loaded shared libraries
 
 ### Concurrency
 

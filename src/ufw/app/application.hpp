@@ -26,7 +26,7 @@
 #include <boost/program_options.hpp>
 #include <boost/core/demangle.hpp>
 
-#include <boost/asio/io_service.hpp>
+#include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
 
 #include <string>
@@ -124,16 +124,16 @@ struct application
 
     void shutdown();
 
-    boost::asio::io_service& context() { return context_; }
+    boost::asio::io_context& context() { return context_; }
 private:
     entity_id id() const { return "app"; } // for ENTITY_LOGGER macro to work
 
 private:
     void load(application_config const& cfg);
 
-    boost::asio::io_service context_;
+    boost::asio::io_context context_;
     boost::asio::signal_set terminal_signals_ {context_, SIGINT/*, SIGTERM*/};
-    std::unique_ptr<boost::asio::io_service::work> work_;
+    std::unique_ptr<boost::asio::io_context::work> work_;
 
     std::vector<std::unique_ptr<entity>> entities_;
     std::map<entity_id, size_t> entity_ids_;

@@ -1,5 +1,6 @@
 #include "entity.hpp"
 #include "lifecycle_participant.hpp"
+#include "application.hpp"
 
 namespace {
 
@@ -14,6 +15,9 @@ struct example: ufw::entity, ufw::lifecycle_participant {
     void start() override /* from lifecycle_participant */
     {
         LOG_INF << "started";
+        app().context().post([this]{
+            LOG_INF << "hello there";
+        });
     }
 };
 

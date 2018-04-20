@@ -10,7 +10,7 @@
 #include <boost/program_options.hpp>
 #include <boost/core/demangle.hpp>
 
-#include <boost/asio/io_service.hpp>
+#include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
 
 #include <string>
@@ -176,7 +176,7 @@ void application::run()
         x.start();
     }
 
-    work_ = std::make_unique<boost::asio::io_service::work>(context_);
+    work_ = std::make_unique<boost::asio::io_context::work>(context_);
     context_.run();
 
     std::reverse(begin(lifecycle_participants_), end(lifecycle_participants_));
