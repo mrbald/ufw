@@ -4,6 +4,9 @@
 #include "configuration.hpp"
 #include "logger.hpp"
 
+#include "library_repository.hpp"
+#include "plugin_repository.hpp"
+
 #include <boost/program_options.hpp>
 #include <boost/core/demangle.hpp>
 
@@ -61,6 +64,9 @@ application::application()
         configure_logger(cfg.Scalar());
         return std::make_unique<entity>(id, rid, app);
     });
+
+    add<library_repository>("LIBRARY");
+    add<plugin_repository>("PLUGIN");
 }
 
 void application::register_loader(entity_id const& id, loader_func_t loader_func)

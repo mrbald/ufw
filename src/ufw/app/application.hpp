@@ -19,6 +19,9 @@
 #include "exception_types.hpp"
 #include "configuration.hpp"
 #include "logger.hpp"
+#include "entity.hpp"
+#include "lifecycle_participant.hpp"
+#include "loader.hpp"
 
 #include <boost/program_options.hpp>
 #include <boost/core/demangle.hpp>
@@ -34,112 +37,6 @@
 #include <type_traits>
 
 namespace ufw {
-
-using entity_id = std::string;
-using resolved_entity_id = size_t;
-
-struct application;
-struct lifecycle_participant;
-
-#define ENTITY_LOGGER \
-private:\
-    mutable logger_t logger_ {[&]\
-    {\
-        logger_t logger;\
-        logger.add_attribute("Entity", attrs::constant<entity_id>(id()));\
-        return logger;\
-    }()};\
-public:\
-    logger_t& get_logger() const { return logger_; }
-
-struct entity
-{
-    entity(entity_id const& id, resolved_entity_id rid, application& app):
-            id_{id}, rid_{rid}, app_{app} {}
-    virtual ~entity() = default;
-
-    entity_id const& id() const noexcept { return id_; }
-    resolved_entity_id resolved_id() const noexcept { return rid_; }
-
-    application& app() const noexcept { return app_; }
-
-private:
-    entity_id const id_;
-    resolved_entity_id const rid_;
-    application& app_;
-
-    ENTITY_LOGGER;
-    friend struct lifecycle_participant; // logger access
-};
-
-/**
- * Entity lazy references logic helper
- */
-template <class T>
-struct entity_ref
-{
-    T* operator->() const { return target_; }
-    T* get() const { return target_; }
-
-    explicit operator T&() { return *target_; }
-    explicit operator T const&() const { return *target_; }
-
-    explicit operator bool() const { return target_; }
-
-    entity_ref(entity_id const& id, application& app):
-            id_ {id},
-            app_ {app} {}
-
-    entity_id const& id() { return id_; }
-    resolved_entity_id resolved_id() const { return resolved_id_; }
-
-    void resolve();
-
-private:
-    entity_id const id_;
-    application& app_;
-
-    resolved_entity_id resolved_id_;
-    T* target_ {};
-};
-
-struct lifecycle_participant
-{
-    // at this stage participants may discover and cache references (including strongly typed) to each other
-    virtual void init() {}
-
-    // at this stage participants may establish connections, spawn threads, etc.
-    virtual void start() {}
-
-    // at this stage participants may start messaging each other
-    virtual void up() const noexcept final
-    {
-        auto* entity_ptr = dynamic_cast<entity const*>(this);
-        if (entity_ptr)
-        {
-            auto const get_logger = [&]()->logger_t& { return entity_ptr->get_logger(); };
-            LOG_INF << "UP";
-        }
-    }
-
-    // reverse of start()
-    virtual void stop() noexcept {}
-
-    // reverse of init()
-    virtual void fini() noexcept {}
-
-    virtual ~lifecycle_participant() = default;
-};
-
-struct loader: entity
-{
-    using entity::entity;
-    virtual std::unique_ptr<entity> load(entity_id const& id, resolved_entity_id rid, config_t const& cfg) = 0;
-};
-
-
-using loader_func_t = std::function<std::unique_ptr<entity>(config_t const& cfg, entity_id const& id, resolved_entity_id rid, application& app)>;
-
 
 struct application
 {

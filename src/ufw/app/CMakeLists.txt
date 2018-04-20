@@ -5,6 +5,7 @@ FIND_PACKAGE(Boost REQUIRED COMPONENTS system program_options log REQUIRED)
 
 FIND_PACKAGE(yaml-cpp REQUIRED)
 
+
 ADD_LIBRARY(ufw_app SHARED
     exception_types.hpp
     configuration.hpp
@@ -34,6 +35,19 @@ INSTALL(TARGETS ufw_app EXPORT UfwTargets
     LIBRARY DESTINATION "${INSTALL_LIB_DIR}" COMPONENT shlib
     PUBLIC_HEADER DESTINATION "${INSTALL_INCLUDE_DIR}/ufw/app"
     COMPONENT dev)
+
+
+ADD_LIBRARY(example SHARED
+    example.cpp)
+
+TARGET_LINK_LIBRARIES(example
+    ufw_app
+    ${CMAKE_THREAD_LIBS_INIT}
+    )
+
+INSTALL(TARGETS example EXPORT UfwTargets
+    LIBRARY DESTINATION "${INSTALL_LIB_DIR}" COMPONENT shlib)
+
 
 ADD_EXECUTABLE(ufw_lancher
     main.cpp)
