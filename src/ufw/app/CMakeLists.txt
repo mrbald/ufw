@@ -53,7 +53,8 @@ ADD_EXECUTABLE(ufw_lancher
     main.cpp)
 
 TARGET_LINK_LIBRARIES(ufw_lancher
-    ufw_app)
+    ufw_app
+    ${CMAKE_DL_LIBS})
 
 INSTALL(TARGETS ufw_lancher EXPORT UfwTargets
     RUNTIME DESTINATION "${INSTALL_LIB_DIR}" COMPONENT bin)

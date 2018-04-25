@@ -17,6 +17,8 @@
 #include "application.hpp"
 #include "exception_types.hpp"
 #include "logger.hpp"
+#include "library_repository.hpp"
+#include "plugin_repository.hpp"
 
 #include <boost/exception/diagnostic_information.hpp>
 
@@ -35,6 +37,8 @@ int main(int argc, char const** argv)
     {
         LOG_INF << "starting";
         ufw::application app;
+        app.add<ufw::library_repository>("LIBRARY");
+        app.add<ufw::plugin_repository>("PLUGIN");
 
         app.load(argc, argv);
 
