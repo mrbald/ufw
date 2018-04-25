@@ -61,12 +61,7 @@ A special "seed" _loader_  &mdash; the `default_loader`, is used by the _applica
 Whether or not an _entity_ is loaded with a _loader_ is specified in the config (flexibility!).
 _entities_ can be registered in the application programmatically without _loaders_.
 The application registers the `default_loader` in directly in the constructor.
-The default launcher registers `LIBRARY` and `PLUGIN` loaders (see below) before initiating the application bootstrap.
-
-The following pre-packaged and pre-instantiated loaders exist in an application bootstrapped with the default launcher (`ufw_launcher`).
-
-* LIBRARY - loader for shared libary
-* PLUGIN - loader for entities from loaded shared libraries
+The default launcher registers `LIBRARY` (loads shared libaries) and `PLUGIN` (loads entities from shared libraries) loaders before initiating the application bootstrap.
 
 ### Concurrency
 
@@ -75,12 +70,15 @@ Once the application is up the main thread becomes the host of the _default exec
 The _default execution context_ an instance of the `boost::asio::io_context` accessible from _entities_ via `this.context()`.
 All other concurrency models are incremental to the `ufw.application`.
 
-
 ### Logging
 
 Logging is a part of the framework. Modules have scoped tagged loggers (with help of macros and context-sensitive symbol lookup).
 The Boost.Log library was taken as Boost is already on the dependency list and the subject library is flexible and reliable.
 This logger is not the fastest around, but it's probably one of the cheapest to integrate with.
+
+The logger is configured the same way as any other entity.
+The _config_ part of the configuration is passed unchanged to the Boost.Log initializer.
+See the configuration file fragment below as an example.
 
 Trying It
 ---------
@@ -94,7 +92,7 @@ The below configuration fragment has a single instance of the _example_ module.
 application:
 
   entities:
-    # ====== general purpose entities ======
+    # ====== logger ======
     - name: LOGGER
       config: |
         [Core]
