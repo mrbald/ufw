@@ -3,6 +3,8 @@
 &mu;FW - Micro Framework
 ========================
 
+[![Join the chat at https://gitter.im/mrbald-ufw/Lobby](https://badges.gitter.im/mrbald-ufw/Lobby.svg)](https://gitter.im/mrbald-ufw/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 &mu;FW is a minimalist framework for rapid server side applications prototyping and experimental work on [Unix-like][1] operating systems, primarily [Linux][2] and [macOS][3].
 Those familiar with [Spring][4] or [Guice][5] may experience a strong deja-vu &mdash; dependency injection support was one of the &rarr;
 
