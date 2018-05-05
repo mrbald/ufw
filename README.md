@@ -9,6 +9,7 @@ Those familiar with [Spring][4] or [Guice][5] may experience a strong deja-vu &m
 Design Objectives
 -----------------
 
+* Minimum number of lines of code &mdash; clean concepts, compact implementations
 * Modularity in spirit of [inversion of control][6]
 * [Late binding][7] support via [shared library][11]-based [plugins][12]
 * Consistency in module configuration, lifecycle, concurrency, and logging
@@ -21,6 +22,8 @@ Following the core C++ design principle, the rule _"you don't pay for what you d
 
 Introduction
 ------------
+
+![uFW Topology](uFW_Topology.png)
 
 ### Terminology
 
@@ -132,7 +135,7 @@ Building Dependencies
 
 The author's main development platforms are x86\_64 [Arch Linux][9] and [macOS + Homebrew][10].
 Both have quite up to date versions of all _&mu;FW_ dependencies.
-For those working in a less bleeding-edge enviroronments - below are th einstructions for building the dependencies from scratch.
+For those working in a less bleeding-edge enviroronments - below are the instructions for building the dependencies from scratch.
 
 ### Boost
 Use instructions from the [Boost Home Page](https://boost.org)
@@ -202,6 +205,7 @@ References
 ----------
 [CMake/How To Find Libraries](https://cmake.org/Wiki/CMake:How_To_Find_Libraries)
 [Markdown Cheatsheet](https://github.com/adam-p/markdown-here/wiki/Markdown-Cheatsheet)
+[Draw.io](https://www.draw.io)
 
 
 [1]: https://en.wikipedia.org/wiki/Unix-like
