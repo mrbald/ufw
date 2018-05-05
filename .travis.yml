@@ -1,8 +1,24 @@
-language: cpp
-compiler: gcc
-branches: {only: ['master']}
-
-script: |
-  #!/bin/bash
-
-  g++ --version
+dist: trusty
+sudo: require
+language:
+  - cpp
+compiler:
+  - gcc
+addons:
+  apt:
+    sources:
+      - ubuntu-toolchain-r-test
+    packages:
+      - gcc-7
+      - g++-7
+      - cmake
+branches:
+  only:
+    - master
+script:
+  - sudo ln -s /usr/bin/gcc-7 /usr/local/bin/gcc
+  - sudo ln -s /usr/bin/g++-7 /usr/local/bin/g++
+  - export CC=/usr/bin/gcc-7
+  - export CXX=/usr/bin/g++-7
+  - gcc -v && g++ -v && cmake --version
+  - pwd
