@@ -26,7 +26,13 @@ script:
   - export CC=/usr/bin/gcc-7
   - export CXX=/usr/bin/g++-7
   - gcc -v && g++ -v && cmake --version
-  - mkdir ../ufw-build && cd ../ufw-build
-  - cmake -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../local ../ufw
-  - make BOOST_TEST_LOG_LEVEL=all unit-test
+  - cd .. && export WORK_ROOT_DIR="$(pwd)"
+  - git clone 'https://github.com/jbeder/yaml-cpp.git' "${WORK_ROOT_DIR}/yaml-cpp" && git checkout 'yaml-cpp-0.6.2'
+  - mkdir -p "${WORK_ROOT_DIR}/yaml-cpp-build" && cd "${WORK_ROOT_DIR}/yaml-cpp-build"
+  - cmake -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release "${WORK_ROOT_DIR}/yaml-cpp"
+  - chrt --batch 0 make -l$(nproc) -j$(nproc) install
+  - mkdir -p "${WORK_ROOT_DIR}/build" && cd "${WORK_ROOT_DIR}/build"
+  - cmake -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release "${WORK_ROOT_DIR}/ufw"
+  - chrt --batch 0 make -l$(nproc) -j$(nproc) all
+  - chrt --batch 0 make BOOST_TEST_LOG_LEVEL=all unit-test
   
