@@ -12,6 +12,9 @@ addons:
       - gcc-7
       - g++-7
       - cmake
+      - libboost-dev
+      - libboost-system-dev
+      - libboost-program-options-dev
       - libboost-all-dev
       - libyaml-cpp-dev
 branches:
@@ -23,7 +26,7 @@ script:
   - export CC=/usr/bin/gcc-7
   - export CXX=/usr/bin/g++-7
   - gcc -v && g++ -v && cmake --version
-  - cd ../ufw-build
+  - mkdir ../ufw-build && cd ../ufw-build
   - cmake -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../local ../ufw
   - make BOOST_TEST_LOG_LEVEL=all unit-test
   
