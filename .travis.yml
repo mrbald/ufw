@@ -12,13 +12,18 @@ addons:
       - gcc-7
       - g++-7
       - cmake
+      - libboost-dev
+      - libyaml-cpp-dev
 branches:
   only:
     - master
-script:
-  - sudo ln -s /usr/bin/gcc-7 /usr/local/bin/gcc
-  - sudo ln -s /usr/bin/g++-7 /usr/local/bin/g++
-  - export CC=/usr/bin/gcc-7
-  - export CXX=/usr/bin/g++-7
-  - gcc -v && g++ -v && cmake --version
-  - pwd
+script: |
+  sudo ln -s /usr/bin/gcc-7 /usr/local/bin/gcc
+  sudo ln -s /usr/bin/g++-7 /usr/local/bin/g++
+  export CC=/usr/bin/gcc-7
+  export CXX=/usr/bin/g++-7
+  gcc -v && g++ -v && cmake --version
+  cd ../ufw-build
+  cmake -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../local ../ufw
+  make BOOST_TEST_LOG_LEVEL=all unit-test
+  
