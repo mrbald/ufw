@@ -35,7 +35,7 @@ install:
     cd ${BOOST_DIR}
     ./bootstrap.sh --with-libraries=system,program_options,log,test
     ./b2 -d0 -q variant=release link=shared threading=multi runtime-link=shared stage
-    sudo ./b2 variant=release link=shared threading=multi runtime-link=shared install
+    sudo ./b2 -d0 -q variant=release link=shared threading=multi runtime-link=shared install
   - |
     set -e
     travis_retry git clone --depth 1 'https://github.com/jbeder/yaml-cpp.git' "${HOME}/yaml-cpp"
