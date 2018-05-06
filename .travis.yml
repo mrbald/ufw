@@ -33,19 +33,20 @@ install:
     mkdir -p "${BOOST_DIR}"
     travis_retry wget -O - "${BOOST_URL}" | tar --strip-components=1 -xz -C "${BOOST_DIR}"
     cd ${BOOST_DIR}
-    ./bootstrap.sh --with-libraries=system,program_options,log
-    sudo ./b2 -d0 -q variant=release link=shared threading=multi runtime-link=shared install
+    ./bootstrap.sh --with-libraries=system,program_options,log,test
+    ./b2 -d0 -q variant=release link=shared threading=multi runtime-link=shared stage
+    sudo ./b2 variant=release link=shared threading=multi runtime-link=shared install
   - |
     set -e
     travis_retry git clone --depth 1 'https://github.com/jbeder/yaml-cpp.git' "${HOME}/yaml-cpp"
     cd "${HOME}/yaml-cpp"
     mkdir build && cd build
-    cmake -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release ..
+    cmake -G 'Unix Makefiles' -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release ..
     sudo make -l$(nproc) -j$(nproc) install
 script: |
         set -e
-        cd "${TRAVIS_BUILD_DIR}/ufw"
-        mkdir build
+        cd "${TRAVIS_BUILD_DIR}"
+        mkdir build && cd build
         cmake -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release ..
         chrt --batch 0 make -l$(nproc) -j$(nproc) all
         chrt --batch 0 make BOOST_TEST_LOG_LEVEL=all unit-test

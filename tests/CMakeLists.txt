@@ -5,6 +5,7 @@ FIND_PACKAGE(Boost REQUIRED COMPONENTS unit_test_framework REQUIRED)
 ADD_DEFINITIONS("-DBOOST_TEST_DYN_LINK")
 
 ADD_LIBRARY(ufw_app_tests OBJECT
+        ufw_topics_tests.cpp
         ufw_app_tests.cpp)
 
 ADD_EXECUTABLE(ufw_tests
@@ -12,6 +13,7 @@ ADD_EXECUTABLE(ufw_tests
         main.cpp)
 
 TARGET_LINK_LIBRARIES(ufw_tests
+        ufw_topics
         boost_unit_test_framework)
 
 ADD_CUSTOM_TARGET(unit-test ufw_tests DEPENDS ufw_tests USES_TERMINAL)
