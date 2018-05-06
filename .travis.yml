@@ -1,8 +1,58 @@
-language: cpp
-compiler: gcc
-branches: {only: ['master']}
-
+dist: trusty
+sudo: require
+language:
+  - cpp
+compiler:
+  - gcc
+addons:
+  apt:
+    sources:
+      - ubuntu-toolchain-r-test
+    packages:
+      - gcc-7
+      - g++-7
+      - cmake
+branches:
+  only:
+    - master
+env:
+  global:
+    - BOOST_VERSION='1.66.0'
+    - BOOST_DIR="${HOME}/boost-${BOOST_VERSION}"
+    - BOOST_URL="https://dl.bintray.com/boostorg/release/${BOOST_VERSION}/source/boost_${BOOST_VERSION//\./_}.tar.gz"
+install:
+  - |
+    set -e
+    sudo ln -s /usr/bin/gcc-7 /usr/local/bin/gcc
+    sudo ln -s /usr/bin/g++-7 /usr/local/bin/g++
+    export CC=/usr/bin/gcc-7
+    export CXX=/usr/bin/g++-7
+    gcc -v && g++ -v && cmake --version
+  - |
+    set -e
+    mkdir -p "${BOOST_DIR}"
+    travis_retry wget -O - "${BOOST_URL}" | tar --strip-components=1 -xz -C "${BOOST_DIR}"
+    cd ${BOOST_DIR}
+    ./bootstrap.sh --with-libraries=system,program_options,log
+    sudo ./b2 -d0 -q variant=release link=shared threading=multi runtime-link=shared install
+  - |
+    set -e
+    travis_retry git clone --depth 1 'https://github.com/jbeder/yaml-cpp.git' "${HOME}/yaml-cpp"
+    cd "${HOME}/yaml-cpp"
+    mkdir build && cd build
+    cmake -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release ..
+    sudo make -l$(nproc) -j$(nproc) install
 script: |
-  #!/bin/bash
-
-  g++ --version
+        set -e
+        cd "${TRAVIS_BUILD_DIR}/ufw"
+        mkdir build
+        cmake -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release ..
+        chrt --batch 0 make -l$(nproc) -j$(nproc) all
+        chrt --batch 0 make BOOST_TEST_LOG_LEVEL=all unit-test
+notifications:
+  webhooks:
+    urls:
+      - https://webhooks.gitter.im/e/5bf5019382456ad872eb
+    on_success: change  # options: [always|never|change] default: always
+    on_failure: always  # options: [always|never|change] default: always
+    on_start: never     # options: [always|never|change] default: always
