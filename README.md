@@ -19,7 +19,7 @@ Design Objectives
 * Zero steady state runtime overhead
 * Hacking-friendly design
 
-Following the core C++ design principle, the rule _"you don't pay for what you don't use"_ is followed where possible.
+Following core C++ design principles, the rule _"you don't pay for what you don't use"_ is adhered to where possible.
 
 Introduction
 ------------
