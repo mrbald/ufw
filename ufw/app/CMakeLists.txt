@@ -7,15 +7,21 @@ FIND_PACKAGE(yaml-cpp REQUIRED)
 
 
 ADD_LIBRARY(ufw_app SHARED
-    exception_types.hpp
-    configuration.hpp
     application.hpp
-    application.cpp
+    configuration.hpp
+    entity.hpp
+    exception_types.hpp
+    library.hpp
+    library_repository.hpp
+    lifecycle_participant.hpp
+    loader.hpp
     logger.hpp
+    plugin_repository.hpp
+    application.cpp
     logger.cpp)
 
 SET_TARGET_PROPERTIES(ufw_app PROPERTIES
-    PUBLIC_HEADER "application.hpp;logger.hpp;configuration.hpp;exception_types.hpp")
+    PUBLIC_HEADER "application.hpp;configuration.hpp;entity.hpp;exception_types.hpp;library.hpp;library_repository.hpp;lifecycle_participant.hpp;loader.hpp;logger.hpp;plugin_repository.hpp")
     
 TARGET_COMPILE_DEFINITIONS(ufw_app PUBLIC "-DBOOST_LOG_DYN_LINK")
 
