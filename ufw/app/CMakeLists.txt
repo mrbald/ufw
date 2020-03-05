@@ -15,10 +15,7 @@ ADD_LIBRARY(ufw_app SHARED
     logger.cpp)
 
 SET_TARGET_PROPERTIES(ufw_app PROPERTIES
-    PUBLIC_HEADER application.hpp
-    PUBLIC_HEADER logger.hpp
-    PUBLIC_HEADER configuration.hpp
-    PUBLIC_HEADER exception_types.hpp)
+    PUBLIC_HEADER "application.hpp;logger.hpp;configuration.hpp;exception_types.hpp")
     
 TARGET_COMPILE_DEFINITIONS(ufw_app PUBLIC "-DBOOST_LOG_DYN_LINK")
 
