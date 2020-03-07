@@ -34,7 +34,7 @@ struct default_loader: loader
         {
             return loader_funcs_.at(lid)(cfg, eid, rid, app());
         }
-        catch (std::out_of_range)
+        catch (std::out_of_range const&)
         {
             throw fatal_error("no default loader " + lid + " registered for entity " + eid);
         }
