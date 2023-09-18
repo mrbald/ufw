@@ -1,11 +1,14 @@
 /* 
- * Copyright (c) 2015 Vladimir Lysyy (mrbald@github)
+ * Copyright (c) 2015-2023 Vladimir Lysyy (mrbald@github)
  * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
  *
  * 2015-03-28 - Vladimir Lysyy - Initial version
+ * 2023-09-17 - Vladimir Lysyy - Tech refresh
  */
 
 #pragma once
+
+#include "entity.hpp"
 
 #include <string>
 #include <memory>
@@ -64,7 +67,7 @@ private:
 };
 using library_ptr = std::shared_ptr<library>;
 
-library_ptr library::load(char const* path)
+inline library_ptr library::load(char const* path)
 {
     return std::make_shared<library>(path);
 }

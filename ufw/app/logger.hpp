@@ -1,5 +1,5 @@
 /*
-   Copyright 2017 Vladimir Lysyy (mrbald@github)
+   Copyright 2017-2023 Vladimir Lysyy (mrbald@github)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -21,8 +21,7 @@
 #include <boost/log/attributes.hpp>
 #include <boost/log/attributes/scoped_attribute.hpp>
 #include <boost/log/sources/severity_logger.hpp>
-
-#include <sys/syscall.h>
+#include <boost/thread/thread.hpp>
 
 namespace logging  = boost::log;
 namespace attrs    = boost::log::attributes;
@@ -66,8 +65,10 @@ using logger_t = boost::log::sources::severity_logger<logging::trivial::severity
 #define LOG_WRN LOG_SEV(warning)
 #define LOG_ERR LOG_SEV(error)
 
+uint64_t get_tid() noexcept;
+
 #define LOG_STAMP_THREAD\
-    BOOST_LOG_SCOPED_THREAD_ATTR("ThreadPID", attrs::constant<int>(syscall(SYS_gettid)))
+    BOOST_LOG_SCOPED_THREAD_ATTR("ThreadPID", attrs::constant<uint64_t>(ufw::get_tid()))
 
 
 void initialize_logger();

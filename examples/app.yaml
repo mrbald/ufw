@@ -1,0 +1,31 @@
+---
+application:
+
+  entities:
+    # ====== logger ======
+    - name: LOGGER
+      config: |
+        [Core]
+        DisableLogging=false
+        LogSeverity=error
+
+        [Sinks.Console]
+        Destination=Console
+        Format="%TimeStamp(format=\"%H:%M:%S.%f\")% | %Severity(format=\"%6s\")% | %ThreadPID% | %Entity% - %Tag%%Message%"
+        Asynchronous=true
+        AutoFlush=true
+
+    # ====== a dynamic library ======
+    - name: example_lib
+      loader_ref: LIBRARY
+      config:
+        filename: libexample.dylib
+        # filename: libexample.so
+
+    # ====== an entity -- plugin from a dynamic library ======
+    - name: example_plugin
+      loader_ref: PLUGIN
+      config:
+        library_ref: example_lib
+        constructor: example_ctor
+...

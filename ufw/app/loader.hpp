@@ -6,6 +6,7 @@
 #pragma once
 
 #include "entity.hpp"
+#include "configuration.hpp"
 
 #include <functional>
 #include <memory>

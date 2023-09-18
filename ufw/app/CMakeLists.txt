@@ -1,10 +1,10 @@
 FIND_PACKAGE(Threads REQUIRED)
 
 SET(Boost_USE_MULTITHREADED ON)
-FIND_PACKAGE(Boost REQUIRED COMPONENTS system program_options log REQUIRED)
+FIND_PACKAGE(Boost REQUIRED COMPONENTS system program_options log log_setup REQUIRED)
 
 FIND_PACKAGE(yaml-cpp REQUIRED)
-
+LINK_DIRECTORIES(${YAML_CPP_LIBRARY_DIR})
 
 ADD_LIBRARY(ufw_app SHARED
     application.hpp
@@ -27,12 +27,14 @@ TARGET_COMPILE_DEFINITIONS(ufw_app PUBLIC "-DBOOST_LOG_DYN_LINK")
 
 TARGET_LINK_LIBRARIES(ufw_app
     yaml-cpp
-    boost_log_setup
-    ${Boost_PROGRAM_OPTIONS_LIBRARY}
-    ${Boost_SYSTEM_LIBRARY}
-    ${Boost_LOG_LIBRARY}
+    Boost::log_setup
+    Boost::program_options
+    Boost::system
+    Boost::log
     ${CMAKE_THREAD_LIBS_INIT}
     )
+
+INCLUDE_DIRECTORIES(${Boost_INCLUDE_DIR})
 
 INSTALL(TARGETS ufw_app EXPORT UfwTargets
     LIBRARY DESTINATION "${INSTALL_LIB_DIR}" COMPONENT shlib

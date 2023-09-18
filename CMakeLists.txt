@@ -1,16 +1,16 @@
 # https://cmake.org/Wiki/CMake/Tutorials/How_to_create_a_ProjectConfig.cmake_file
 
-CMAKE_MINIMUM_REQUIRED(VERSION 3.1)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.27)
 
 PROJECT(Ufw VERSION 0.0.1 LANGUAGES "CXX")
 
-SET(CMAKE_CXX_STANDARD 17)
+SET(CMAKE_CXX_STANDARD 20)
+SET(CMAKE_CXX_STANDARD_REQUIRED ON)
+SET(CMAKE_VERBOSE_MAKEFILE ON)
 
 IF(NOT WINDOWS)
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pedantic -Wall -Wextra -Werror" )
 ENDIF()
-
-SET(CMAKE_BUILD_TYPE Release CACHE STRING "Project build type" FORCE)
 
 INCLUDE_DIRECTORIES("${PROJECT_SOURCE_DIR}" "${PROJECT_BINARY_DIR}")
 
@@ -52,3 +52,12 @@ ADD_SUBDIRECTORY(ufw/topics)
 ADD_SUBDIRECTORY(ufw/app)
 ADD_SUBDIRECTORY(tests)
 ADD_SUBDIRECTORY(benchmarks)
+
+ADD_COMPILE_OPTIONS(-fsanitize=address -fsanitize=undefined)
+ADD_LINK_OPTIONS(-fsanitize=address -fsanitize=undefined)
+
+set(CMAKE_CXX_CLANG_TIDY
+  clang-tidy;
+  -header-filter=.;
+  -checks=*;
+  -warnings-as-errors=*;)

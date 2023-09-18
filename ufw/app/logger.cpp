@@ -8,12 +8,12 @@
 #include <boost/date_time/posix_time/posix_time.hpp>
 
 #include <string>
+#include <thread>
+
+#include <pthread.h>
 
 namespace logging  = boost::log;
 namespace attrs    = boost::log::attributes;
-namespace expr     = boost::log::expressions;
-namespace src      = boost::log::sources;
-namespace keywords = boost::log::keywords;
 
 namespace ufw {
 
@@ -51,6 +51,13 @@ void configure_logger(std::string const& cfg)
 {
     std::istringstream buf(cfg);
     boost::log::init_from_stream(buf);
+}
+
+uint64_t get_tid() noexcept
+{
+  uint64_t tid{};
+  return pthread_threadid_np(pthread_self(), &tid);
+  return int(tid);
 }
 
 } // namespace ufw

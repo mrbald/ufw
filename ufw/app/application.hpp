@@ -1,5 +1,5 @@
 /*
-   Copyright 2017 Vladimir Lysyy (mrbald@github)
+   Copyright 2017-2023 Vladimir Lysyy (mrbald@github)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
