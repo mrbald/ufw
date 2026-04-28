@@ -1,21 +1,21 @@
-IF(benchmark_DIR)
-    FIND_PACKAGE(benchmark PATHS "${benchmark_DIR}" QUIET)
-ELSE(benchmark_DIR)
-    FIND_PACKAGE(benchmark QUIET)
-ENDIF(benchmark_DIR)
+find_package(benchmark QUIET)
 
-IF(benchmark_FOUND)
-    MESSAGE(STATUS "benchmarks enabled (using google.benchmark ${benchmark_VERSION} from ${benchmark_DIR})")
+if(benchmark_FOUND)
+    message(STATUS "benchmarks enabled (using google.benchmark ${benchmark_VERSION})")
 
-    ADD_EXECUTABLE(ufw_benchmarks
+    add_executable(ufw_benchmarks
             ufw-sandbox-benchmarks.cpp
             main.cpp)
 
-    TARGET_LINK_LIBRARIES(ufw_benchmarks
-            benchmark::benchmark)
+    target_compile_features(ufw_benchmarks PRIVATE cxx_std_23)
 
-    ADD_CUSTOM_TARGET(benchmark ufw_benchmarks DEPENDS ufw_benchmarks USES_TERMINAL)
+    target_link_libraries(ufw_benchmarks
+        PRIVATE
+            benchmark::benchmark
+            ufw::warnings
+            ufw::sanitizers)
 
-ELSE()
-    MESSAGE(STATUS "benchmarks disabled (google.benchmark not found)")
-ENDIF()
+    add_custom_target(benchmark ufw_benchmarks DEPENDS ufw_benchmarks USES_TERMINAL)
+else()
+    message(STATUS "benchmarks disabled (google.benchmark not found)")
+endif()

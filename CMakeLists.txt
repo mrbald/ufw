@@ -1,63 +1,127 @@
-# https://cmake.org/Wiki/CMake/Tutorials/How_to_create_a_ProjectConfig.cmake_file
+cmake_minimum_required(VERSION 3.27)
 
-CMAKE_MINIMUM_REQUIRED(VERSION 3.27)
+project(Ufw VERSION 0.0.1 LANGUAGES CXX)
 
-PROJECT(Ufw VERSION 0.0.1 LANGUAGES "CXX")
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
-SET(CMAKE_CXX_STANDARD 20)
-SET(CMAKE_CXX_STANDARD_REQUIRED ON)
-SET(CMAKE_VERBOSE_MAKEFILE ON)
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-IF(NOT WINDOWS)
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pedantic -Wall -Wextra -Werror" )
-ENDIF()
+# -----------------------------------------------------------------------------
+# Options
 
-INCLUDE_DIRECTORIES("${PROJECT_SOURCE_DIR}" "${PROJECT_BINARY_DIR}")
+option(UFW_USE_CCACHE        "Use ccache as compiler launcher"        OFF)
+option(UFW_ENABLE_CLANG_TIDY "Run clang-tidy on first-party targets"  ON)
 
-SET(CMAKE_SKIP_BUILD_RPATH FALSE)
-SET(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE) 
-SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+# Sanitizers default ON in Debug, OFF otherwise; user may override with
+# -DUFW_ENABLE_SANITIZERS=ON/OFF on the configure line.
+if(NOT DEFINED UFW_ENABLE_SANITIZERS)
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(UFW_ENABLE_SANITIZERS ON  CACHE BOOL "Enable AddressSanitizer + UBSan")
+    else()
+        set(UFW_ENABLE_SANITIZERS OFF CACHE BOOL "Enable AddressSanitizer + UBSan")
+    endif()
+endif()
 
-IF(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-    SET(CMAKE_INSTALL_PREFIX "${PROJECT_BINARY_DIR}/install" CACHE PATH "Project installation prefix" FORCE)
-ENDIF()
+if(UFW_USE_CCACHE)
+    find_program(CCACHE_PROGRAM ccache)
+    if(CCACHE_PROGRAM)
+        message(STATUS "ccache enabled (${CCACHE_PROGRAM})")
+        set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM})
+        set(CMAKE_C_COMPILER_LAUNCHER   ${CCACHE_PROGRAM})
+    else()
+        message(WARNING "UFW_USE_CCACHE=ON but ccache not found in PATH")
+    endif()
+endif()
 
-SET(INSTALL_LIB_DIR lib CACHE PATH "Installation directory for libraries")
-SET(INSTALL_BIN_DIR bin CACHE PATH "Installation directory for executables")
-SET(INSTALL_INCLUDE_DIR include CACHE PATH "Installation directory for header files")
-IF(WIN32 AND NOT CYGWIN)
-    SET(DEF_INSTALL_CMAKE_DIR CMake)
-ELSE()
-    SET(DEF_INSTALL_CMAKE_DIR lib/CMake/Ufw)
-ENDIF()
+set(UFW_CLANG_TIDY_COMMAND "")
+if(UFW_ENABLE_CLANG_TIDY)
+    find_program(CLANG_TIDY_PROGRAM clang-tidy)
+    if(CLANG_TIDY_PROGRAM)
+        message(STATUS "clang-tidy enabled (${CLANG_TIDY_PROGRAM})")
+        set(UFW_CLANG_TIDY_COMMAND "${CLANG_TIDY_PROGRAM}")
+    else()
+        message(STATUS "clang-tidy not found, skipping")
+    endif()
+endif()
 
-SET(INSTALL_CMAKE_DIR ${DEF_INSTALL_CMAKE_DIR} CACHE PATH "Installation directory for CMake files")
+# -----------------------------------------------------------------------------
+# Interface libraries: warnings (first-party only) and sanitizers (uniform
+# across launcher + plugins, required by the dlopen plugin model).
 
-IF(UNIX AND NOT APPLE)
-    IF(NOT IS_ABSOLUTE "${${INSTALL_LIB_DIR}}")
-        SET(CMAKE_INSTALL_RPATH "$ORIGIN/../${INSTALL_LIB_DIR}")
-    ENDIF()
-ENDIF()
- 
-FOREACH(p LIB BIN INCLUDE CMAKE)
-    SET(var INSTALL_${p}_DIR)
-    IF(NOT IS_ABSOLUTE "${${var}}")
-        SET(${var} "${CMAKE_INSTALL_PREFIX}/${${var}}")
-    ENDIF()
-ENDFOREACH()
+add_library(ufw_warnings INTERFACE)
+add_library(ufw::warnings ALIAS ufw_warnings)
+if(NOT WIN32)
+    target_compile_options(ufw_warnings INTERFACE
+        -pedantic -Wall -Wextra -Werror)
+endif()
 
-ENABLE_TESTING()
+add_library(ufw_sanitizers INTERFACE)
+add_library(ufw::sanitizers ALIAS ufw_sanitizers)
+if(UFW_ENABLE_SANITIZERS)
+    message(STATUS "sanitizers enabled (asan + ubsan)")
+    target_compile_options(ufw_sanitizers INTERFACE
+        -fsanitize=address -fsanitize=undefined)
+    target_link_options(ufw_sanitizers INTERFACE
+        -fsanitize=address -fsanitize=undefined)
+endif()
 
-ADD_SUBDIRECTORY(ufw/topics)
-ADD_SUBDIRECTORY(ufw/app)
-ADD_SUBDIRECTORY(tests)
-ADD_SUBDIRECTORY(benchmarks)
+# -----------------------------------------------------------------------------
+# Install layout
 
-ADD_COMPILE_OPTIONS(-fsanitize=address -fsanitize=undefined)
-ADD_LINK_OPTIONS(-fsanitize=address -fsanitize=undefined)
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "${PROJECT_BINARY_DIR}/install"
+        CACHE PATH "Project installation prefix" FORCE)
+endif()
 
-set(CMAKE_CXX_CLANG_TIDY
-  clang-tidy;
-  -header-filter=.;
-  -checks=*;
-  -warnings-as-errors=*;)
+set(INSTALL_LIB_DIR     ${CMAKE_INSTALL_LIBDIR})
+set(INSTALL_BIN_DIR     ${CMAKE_INSTALL_BINDIR})
+set(INSTALL_INCLUDE_DIR ${CMAKE_INSTALL_INCLUDEDIR})
+if(WIN32 AND NOT CYGWIN)
+    set(INSTALL_CMAKE_DIR CMake)
+else()
+    set(INSTALL_CMAKE_DIR ${CMAKE_INSTALL_LIBDIR}/cmake/Ufw)
+endif()
+
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+if(UNIX AND NOT APPLE)
+    set(CMAKE_INSTALL_RPATH "$ORIGIN/../${INSTALL_LIB_DIR}")
+endif()
+
+# -----------------------------------------------------------------------------
+# Subprojects
+
+include_directories("${PROJECT_SOURCE_DIR}" "${PROJECT_BINARY_DIR}")
+
+enable_testing()
+
+add_subdirectory(ufw/topics)
+add_subdirectory(ufw/app)
+add_subdirectory(tests)
+add_subdirectory(benchmarks)
+
+# -----------------------------------------------------------------------------
+# Package config / install exports
+
+configure_package_config_file(
+    cmake/UfwConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/UfwConfig.cmake
+    INSTALL_DESTINATION ${INSTALL_CMAKE_DIR})
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/UfwConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion)
+
+install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/UfwConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/UfwConfigVersion.cmake
+    DESTINATION ${INSTALL_CMAKE_DIR}
+    COMPONENT dev)
+
+install(EXPORT UfwTargets
+    NAMESPACE ufw::
+    DESTINATION ${INSTALL_CMAKE_DIR}
+    COMPONENT dev)
