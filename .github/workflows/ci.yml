@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  linux-gcc-debug:
+    runs-on: ubuntu-24.04
+    env:
+      CC: gcc-13
+      CXX: g++-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: install conan
+        run: pip install 'conan==2.7.*'
+
+      - name: conan profile
+        run: |
+          conan profile detect --force
+          conan profile show
+
+      - name: cache conan home
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-gcc13-${{ hashFiles('conanfile.txt') }}
+          restore-keys: |
+            conan-${{ runner.os }}-gcc13-
+
+      - name: conan install (Debug)
+        run: conan install . -s build_type=Debug --build=missing
+
+      - name: configure
+        run: cmake --preset conan-debug
+
+      - name: build
+        run: cmake --build --preset conan-debug -j
+
+      - name: unit tests
+        run: cmake --build --preset conan-debug --target unit-test
