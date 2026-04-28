@@ -6,13 +6,28 @@ on:
   pull_request:
 
 jobs:
-  linux-gcc-debug:
-    runs-on: ubuntu-24.04
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.cxx || 'apple-clang' }} / ${{ matrix.build_type }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, build_type: Debug,   cc: gcc-13,    cxx: g++-13 }
+          - { os: ubuntu-24.04, build_type: Release, cc: gcc-13,    cxx: g++-13 }
+          - { os: ubuntu-24.04, build_type: Debug,   cc: clang-18,  cxx: clang++-18 }
+          - { os: ubuntu-24.04, build_type: Release, cc: clang-18,  cxx: clang++-18 }
+          - { os: macos-14,     build_type: Debug }
+          - { os: macos-14,     build_type: Release }
     env:
-      CC: gcc-13
-      CXX: g++-13
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: install clang-18 (linux)
+        if: startsWith(matrix.cxx, 'clang')
+        run: sudo apt-get update && sudo apt-get install -y clang-18
 
       - uses: actions/setup-python@v5
         with:
@@ -21,27 +36,34 @@ jobs:
       - name: install conan
         run: pip install 'conan==2.7.*'
 
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: ccache-${{ matrix.os }}-${{ matrix.cxx || 'apple-clang' }}-${{ matrix.build_type }}
+
       - name: conan profile
         run: |
           conan profile detect --force
+          # The codebase is C++23; bump cppstd in the detected profile.
+          sed -i.bak 's/^compiler.cppstd=.*/compiler.cppstd=gnu23/' ~/.conan2/profiles/default
           conan profile show
 
       - name: cache conan home
         uses: actions/cache@v4
         with:
           path: ~/.conan2
-          key: conan-${{ runner.os }}-gcc13-${{ hashFiles('conanfile.txt') }}
+          key: conan-${{ matrix.os }}-${{ matrix.cxx || 'apple-clang' }}-${{ matrix.build_type }}-${{ hashFiles('conanfile.txt') }}
           restore-keys: |
-            conan-${{ runner.os }}-gcc13-
+            conan-${{ matrix.os }}-${{ matrix.cxx || 'apple-clang' }}-${{ matrix.build_type }}-
 
-      - name: conan install (Debug)
-        run: conan install . -s build_type=Debug --build=missing
+      - name: conan install
+        run: conan install . -s build_type=${{ matrix.build_type }} --build=missing
 
       - name: configure
-        run: cmake --preset conan-debug
+        run: cmake --preset conan-${{ matrix.build_type == 'Debug' && 'debug' || 'release' }} -DUFW_USE_CCACHE=ON
 
       - name: build
-        run: cmake --build --preset conan-debug -j
+        run: cmake --build --preset conan-${{ matrix.build_type == 'Debug' && 'debug' || 'release' }} -j
 
       - name: unit tests
-        run: cmake --build --preset conan-debug --target unit-test
+        run: cmake --build --preset conan-${{ matrix.build_type == 'Debug' && 'debug' || 'release' }} --target unit-test
