@@ -69,7 +69,7 @@ struct application
 
         entities_.push_back(std::make_unique<T>(std::forward<Args>(args)..., id, rid, *this));
 
-        LOG_INF << "loaded with ctor: " << id << "<" << rid << ">";
+        LOG_INF("loaded with ctor: {}<{}>", id, rid);
         return rid;
     }
 

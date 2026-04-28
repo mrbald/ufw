@@ -4,16 +4,10 @@ application:
   entities:
     # ====== logger ======
     - name: LOGGER
-      config: |
-        [Core]
-        DisableLogging=false
-        LogSeverity=error
-
-        [Sinks.Console]
-        Destination=Console
-        Format="%TimeStamp(format=\"%H:%M:%S.%f\")% | %Severity(format=\"%6s\")% | %ThreadPID% | %Entity% - %Tag%%Message%"
-        Asynchronous=true
-        AutoFlush=true
+      config:
+        severity: info
+        pattern: "%(time) | %(log_level:<7) | %(thread_id) | %(logger) - %(message)"
+        timestamp_pattern: "%H:%M:%S.%Qms"
 
     # ====== a dynamic library ======
     - name: example_lib

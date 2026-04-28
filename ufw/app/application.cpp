@@ -44,7 +44,7 @@ struct default_loader: loader
     {
         if (!loader_funcs_.emplace(id, std::move(loader_func)).second)
             throw fatal_error("duplicate loader registration for enity ID " + id);
-        LOG_INF << "registered loader function for " << id;
+        LOG_INF("registered loader function for {}", id);
     }
 
 private:
@@ -58,7 +58,7 @@ application::application()
 
     register_loader("LOGGER", [&](config_t const& cfg, entity_id const& id, resolved_entity_id rid, application& app)
     {
-        configure_logger(cfg.Scalar());
+        configure_logger(cfg.as<logger_config>());
         return std::make_unique<entity>(id, rid, app);
     });
 }
@@ -85,12 +85,12 @@ resolved_entity_id application::add(entity_id const& id, entity_id const& loader
     if (loader_rid < entities_.size())
     {
         entities_.push_back(get<loader>(loader_rid).load(id, rid, cfg));
-        LOG_INF << "loaded with [" << loader_id << "<" << loader_rid << ">]: " << id << "<" << rid << ">";
+        LOG_INF("loaded with [{}<{}>]: {}<{}>", loader_id, loader_rid, id, rid);
     }
     else
     {
         entities_.push_back(get<default_loader>("").load(loader_id, id, rid, cfg));
-        LOG_INF << "loaded with loader function [" << loader_id << "]: " << id << "<" << rid << ">";
+        LOG_INF("loaded with loader function [{}]: {}<{}>", loader_id, id, rid);
     }
 
     return rid;
@@ -129,7 +129,7 @@ void application::load(int argc, char const** argv)
 
     po::notify(vm);
 
-    LOG_INF << "loading configuration from " << config_file;
+    LOG_INF("loading configuration from {}", config_file);
     std::ifstream in(config_file.c_str());
     if (!in) throw std::runtime_error("config file not found");
     YAML::Node node = YAML::Load(in);
@@ -139,12 +139,10 @@ void application::load(int argc, char const** argv)
 
 void application::run()
 {
-    LOG_STAMP_THREAD;
-
-    LOG_INF << "initializing lifecycle participants";
+    LOG_INF("initializing lifecycle participants");
     for (lifecycle_participant& x: lifecycle_participants_)
     {
-        LOG_INF << "initializing " << dynamic_cast<entity&>(x).id();
+        LOG_INF("initializing {}", dynamic_cast<entity&>(x).id());
         x.init();
     }
 
@@ -153,20 +151,20 @@ void application::run()
         if (!error)
         {
             std::map<int, char const*> names {{SIGINT, "SIGINT"}, {SIGTERM, "SIGTERM"}};
-            LOG_WRN << "terminal signal " << names[signal_number] << " received, terminating main context";
+            LOG_WRN("terminal signal {} received, terminating main context", names[signal_number]);
             shutdown();
         }
     });
 
-    LOG_INF << "scheduling lifecycle participants ping";
+    LOG_INF("scheduling lifecycle participants ping");
     for (lifecycle_participant& x: lifecycle_participants_)
         context_.post([&x]{ x.up(); }); // TODO: VL: ping participants via their inboxes (once inboxes are implemented)
-    context_.post([this]{LOG_INF << "UP";});
+    context_.post([this]{ LOG_INF("UP"); });
 
-    LOG_INF << "starting lifecycle participants";
+    LOG_INF("starting lifecycle participants");
     for (lifecycle_participant& x: lifecycle_participants_)
     {
-        LOG_INF << "starting " << dynamic_cast<entity&>(x).id();
+        LOG_INF("starting {}", dynamic_cast<entity&>(x).id());
         x.start();
     }
 
@@ -175,17 +173,17 @@ void application::run()
 
     std::reverse(begin(lifecycle_participants_), end(lifecycle_participants_));
 
-    LOG_INF << "stopping lifecycle participants";
+    LOG_INF("stopping lifecycle participants");
     for (lifecycle_participant& x: lifecycle_participants_)
     {
-        LOG_INF << "stopping " << dynamic_cast<entity&>(x).id();
+        LOG_INF("stopping {}", dynamic_cast<entity&>(x).id());
         x.stop();
     }
 
-    LOG_INF << "deinitializing lifecycle participants";
+    LOG_INF("deinitializing lifecycle participants");
     for (lifecycle_participant& x: lifecycle_participants_)
     {
-        LOG_INF << "deinitializing " << dynamic_cast<entity&>(x).id();
+        LOG_INF("deinitializing {}", dynamic_cast<entity&>(x).id());
         x.fini();
     }
 }

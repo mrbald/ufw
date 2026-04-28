@@ -22,12 +22,6 @@
 
 #include <boost/exception/diagnostic_information.hpp>
 
-#include <string>
-#include <vector>
-#include <iostream>
-#include <fstream>
-#include <map>
-
 
 int main(int argc, char const** argv)
 {
@@ -35,7 +29,7 @@ int main(int argc, char const** argv)
 
     try
     {
-        LOG_INF << "starting";
+        LOG_INF("starting");
         ufw::application app;
         app.add<ufw::library_repository>("LIBRARY");
         app.add<ufw::plugin_repository>("PLUGIN");
@@ -46,7 +40,7 @@ int main(int argc, char const** argv)
     }
     catch (...)
     {
-        LOG_ERR << boost::current_exception_diagnostic_information();
+        LOG_ERR("{}", boost::current_exception_diagnostic_information());
         return 1;
     }
 }

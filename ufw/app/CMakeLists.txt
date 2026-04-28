@@ -1,5 +1,5 @@
 find_package(Threads REQUIRED)
-find_package(Boost REQUIRED COMPONENTS headers system program_options log log_setup)
+find_package(Boost REQUIRED COMPONENTS headers system program_options)
 find_package(yaml-cpp REQUIRED)
 find_package(quill REQUIRED)
 find_package(fmt REQUIRED)
@@ -22,7 +22,6 @@ set_target_properties(ufw_app PROPERTIES
     PUBLIC_HEADER "application.hpp;configuration.hpp;entity.hpp;exception_types.hpp;library.hpp;library_repository.hpp;lifecycle_participant.hpp;loader.hpp;logger.hpp;plugin_repository.hpp")
 
 target_compile_features(ufw_app PUBLIC cxx_std_23)
-target_compile_definitions(ufw_app PUBLIC BOOST_LOG_DYN_LINK)
 
 target_link_libraries(ufw_app
     PUBLIC
@@ -30,13 +29,11 @@ target_link_libraries(ufw_app
         Boost::headers
         Boost::program_options
         Boost::system
-        Boost::log
-        Boost::log_setup
+        quill::quill
+        fmt::fmt
     PRIVATE
         ufw::warnings
         ufw::sanitizers
-        quill::quill
-        fmt::fmt
         Threads::Threads)
 
 if(UFW_CLANG_TIDY_COMMAND)

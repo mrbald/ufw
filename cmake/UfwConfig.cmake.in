@@ -3,7 +3,7 @@
 include(CMakeFindDependencyMacro)
 
 find_dependency(Threads)
-find_dependency(Boost COMPONENTS headers system program_options log log_setup)
+find_dependency(Boost COMPONENTS headers system program_options)
 find_dependency(yaml-cpp)
 find_dependency(quill)
 find_dependency(fmt)

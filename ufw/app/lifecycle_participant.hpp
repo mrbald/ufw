@@ -1,4 +1,4 @@
-/* 
+/*
  * Copyright (c) 2015 Vladimir Lysyy (mrbald@github)
  * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
  */
@@ -25,8 +25,8 @@ struct lifecycle_participant
         auto* entity_ptr = dynamic_cast<entity const*>(this);
         if (entity_ptr)
         {
-            auto const get_logger = [&]()->logger_t& { return entity_ptr->get_logger(); };
-            LOG_INF << "UP";
+            auto const get_logger = [&]{ return entity_ptr->get_logger(); };
+            LOG_INF("UP");
         }
     }
 

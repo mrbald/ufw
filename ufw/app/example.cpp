@@ -16,17 +16,17 @@ struct example: ufw::entity, ufw::lifecycle_participant {
 
     void init() override /* from lifecycle_participant */
     {
-        LOG_INF << "initialized";
+        LOG_INF("initialized");
     }
 
     void start() override /* from lifecycle_participant */
     {
-        LOG_INF << "started";
+        LOG_INF("started");
         app().context().post([this]{
-            LOG_INF << "scheduling shutdown in 5 seconds";
+            LOG_INF("scheduling shutdown in 5 seconds");
             timer_.expires_after(std::chrono::seconds(5));
             timer_.async_wait([this](auto&&){
-                LOG_INF << ">>>>>> shutting down <<<<<<";
+                LOG_INF(">>>>>> shutting down <<<<<<");
                 app().shutdown();
             });
         });
@@ -34,12 +34,12 @@ struct example: ufw::entity, ufw::lifecycle_participant {
 
     void stop() noexcept override /* from lifecycle_participant */
     {
-        LOG_INF << "stopped";
+        LOG_INF("stopped");
     }
 
     void fini() noexcept override /* from lifecycle_participant */
     {
-        LOG_INF << "finalized";
+        LOG_INF("finalized");
     }
 
 private:

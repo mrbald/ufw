@@ -1,63 +1,89 @@
+/*
+   Copyright 2017-2026 Vladimir Lysyy (mrbald@github)
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 #include "logger.hpp"
 
-#include <boost/log/expressions.hpp>
-#include <boost/log/support/date_time.hpp>
-#include <boost/log/utility/setup/common_attributes.hpp>
-#include <boost/log/utility/setup/from_stream.hpp>
-#include <boost/log/utility/setup/formatter_parser.hpp>
-#include <boost/date_time/posix_time/posix_time.hpp>
+#include <quill/Backend.h>
+#include <quill/Frontend.h>
+#include <quill/sinks/ConsoleSink.h>
 
-#include <string>
-#include <thread>
-
-#include <pthread.h>
-
-namespace logging  = boost::log;
-namespace attrs    = boost::log::attributes;
+#include <memory>
+#include <vector>
 
 namespace ufw {
 
-struct TimeStampFormatterFactory: boost::log::basic_formatter_factory<char, boost::posix_time::ptime>
+namespace {
+
+quill::LogLevel to_log_level(std::string const& s)
 {
-    formatter_type create_formatter(const boost::log::attribute_name& name, const args_map& args)
-    {
-        auto it = args.find("format");
-        if (it != args.end()) {
-            return boost::log::expressions::stream
-                << boost::log::expressions::format_date_time<boost::posix_time::ptime>(
-                    boost::log::expressions::attr<boost::posix_time::ptime>(name), it->second);
-        }
-        else
-        {
-            return boost::log::expressions::stream
-                << boost::log::expressions::attr<boost::posix_time::ptime>(name);
-        }
-    }
-};
+    if (s == "trace") return quill::LogLevel::TraceL3;
+    if (s == "debug") return quill::LogLevel::Debug;
+    if (s == "info") return quill::LogLevel::Info;
+    if (s == "warning" || s == "warn") return quill::LogLevel::Warning;
+    if (s == "error") return quill::LogLevel::Error;
+    if (s == "critical" || s == "fatal") return quill::LogLevel::Critical;
+    return quill::LogLevel::Info;
+}
+
+logger_config& current_config()
+{
+    static logger_config cfg;
+    return cfg;
+}
+
+std::vector<std::shared_ptr<quill::Sink>> default_sinks()
+{
+    static auto sink = quill::Frontend::create_or_get_sink<quill::ConsoleSink>("ufw_console");
+    return {sink};
+}
+
+quill::PatternFormatterOptions current_pattern()
+{
+    return quill::PatternFormatterOptions{
+        current_config().pattern, current_config().timestamp_pattern};
+}
+
+} // anonymous namespace
 
 void initialize_logger()
 {
-    LOG_STAMP_THREAD;
-    logging::register_formatter_factory("TimeStamp", boost::make_shared<TimeStampFormatterFactory>());
-    logging::register_simple_formatter_factory<logging::trivial::severity_level, char>("Severity");
-    logging::core::get()->add_global_attribute("File", attrs::mutable_constant<logging::string_literal>("-"));
-    logging::core::get()->add_global_attribute("Line", attrs::mutable_constant<int>(0));
-    logging::core::get()->add_global_attribute("Func", attrs::mutable_constant<logging::string_literal>("-"));
-    logging::core::get()->add_global_attribute("Tag", attrs::mutable_constant<logging::string_literal>("-"));
-    logging::add_common_attributes();
+    quill::Backend::start();
 }
 
-void configure_logger(std::string const& cfg)
+void configure_logger(logger_config const& cfg)
 {
-    std::istringstream buf(cfg);
-    boost::log::init_from_stream(buf);
+    current_config() = cfg;
+    auto const lvl = to_log_level(cfg.severity);
+    // Apply the new severity to the root logger and any already-created entity
+    // loggers; pattern changes only affect loggers created after this point
+    // (Quill's pattern is fixed at logger creation time).
+    get_root_logger()->set_log_level(lvl);
 }
 
-uint64_t get_tid() noexcept
+logger_t get_root_logger()
 {
-  uint64_t tid{};
-  return pthread_threadid_np(pthread_self(), &tid);
-  return int(tid);
+    static logger_t root = quill::Frontend::create_or_get_logger(
+        "app", default_sinks(), current_pattern());
+    return root;
+}
+
+logger_t get_or_create_entity_logger(std::string const& entity_id)
+{
+    return quill::Frontend::create_or_get_logger(
+        entity_id, default_sinks(), current_pattern());
 }
 
 } // namespace ufw

@@ -1,7 +1,7 @@
 [requires]
 benchmark/1.8.4
 fmt/11.2.0
-quill/7.5.0
+quill/11.1.0
 boost/1.86.0
 yaml-cpp/0.8.0
 

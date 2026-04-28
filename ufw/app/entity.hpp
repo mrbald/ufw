@@ -1,4 +1,4 @@
-/* 
+/*
  * Copyright (c) 2015 Vladimir Lysyy (mrbald@github)
  * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
  */
@@ -19,14 +19,9 @@ struct lifecycle_participant;
 
 #define ENTITY_LOGGER \
 private:\
-    mutable logger_t logger_ {[&]\
-    {\
-        logger_t logger;\
-        logger.add_attribute("Entity", attrs::constant<entity_id>(id()));\
-        return logger;\
-    }()};\
+    mutable logger_t logger_ {::ufw::get_or_create_entity_logger(id())};\
 public:\
-    logger_t& get_logger() const { return logger_; }
+    logger_t get_logger() const { return logger_; }
 
 struct entity
 {
