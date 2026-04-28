@@ -1,23 +1,19 @@
-FIND_PACKAGE(Threads REQUIRED)
+find_package(Threads REQUIRED)
 
-SET(Boost_USE_MULTITHREADED ON)
-FIND_PACKAGE(Boost REQUIRED)
-
-FIND_PACKAGE(yaml-cpp REQUIRED)
-LINK_DIRECTORIES(${YAML_CPP_LIBRARY_DIR})
-
-ADD_LIBRARY(ufw_topics SHARED
+add_library(ufw_topics SHARED
     topics.cpp
     topics.hpp)
 
-SET_TARGET_PROPERTIES(ufw_topics PROPERTIES
+set_target_properties(ufw_topics PROPERTIES
     PUBLIC_HEADER topics.hpp)
 
-TARGET_LINK_LIBRARIES(ufw_topics
-    ufw_app
-    ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(ufw_topics
+    PUBLIC
+        ufw_app
+    PRIVATE
+        Threads::Threads)
 
-INSTALL(TARGETS ufw_topics EXPORT UfwTargets
+install(TARGETS ufw_topics EXPORT UfwTargets
     LIBRARY DESTINATION "${INSTALL_LIB_DIR}"
     PUBLIC_HEADER DESTINATION "${INSTALL_INCLUDE_DIR}/ufw/topics"
     COMPONENT shlib)

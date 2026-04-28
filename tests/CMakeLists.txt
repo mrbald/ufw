@@ -1,26 +1,31 @@
-FIND_PACKAGE(Threads REQUIRED)
+find_package(Threads REQUIRED)
+find_package(Boost REQUIRED COMPONENTS unit_test_framework)
+find_package(yaml-cpp REQUIRED)
 
-SET(Boost_USE_MULTITHREADED ON)  
-FIND_PACKAGE(Boost REQUIRED COMPONENTS unit_test_framework REQUIRED)
-ADD_DEFINITIONS("-DBOOST_TEST_DYN_LINK")
-
-FIND_PACKAGE(yaml-cpp REQUIRED)
-LINK_DIRECTORIES(${YAML_CPP_LIBRARY_DIR})
-
-ADD_LIBRARY(ufw_app_tests OBJECT
+add_library(ufw_app_tests OBJECT
         ufw_topics_tests.cpp
         ufw_app_tests.cpp)
 
-ADD_EXECUTABLE(ufw_tests
+target_link_libraries(ufw_app_tests
+    PUBLIC
+        ufw_topics
+        Boost::unit_test_framework
+        yaml-cpp::yaml-cpp)
+
+target_compile_definitions(ufw_app_tests PUBLIC BOOST_TEST_DYN_LINK)
+
+add_executable(ufw_tests
         $<TARGET_OBJECTS:ufw_app_tests>
         main.cpp)
 
-TARGET_LINK_LIBRARIES(ufw_tests
+target_link_libraries(ufw_tests
+    PRIVATE
         ufw_topics
-        Boost::unit_test_framework)
+        Boost::unit_test_framework
+        yaml-cpp::yaml-cpp)
 
-INCLUDE_DIRECTORIES(${Boost_INCLUDE_DIR})
+target_compile_definitions(ufw_tests PRIVATE BOOST_TEST_DYN_LINK)
 
-ADD_CUSTOM_TARGET(unit-test ufw_tests DEPENDS ufw_tests USES_TERMINAL)
+add_custom_target(unit-test ufw_tests DEPENDS ufw_tests USES_TERMINAL)
 
-ADD_TEST(ctest_ufw_tests "${CMAKE_COMMAND}" --build ${CMAKE_BINARY_DIR} --target unit-test)
+add_test(NAME ctest_ufw_tests COMMAND ufw_tests)

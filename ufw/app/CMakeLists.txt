@@ -1,12 +1,10 @@
-FIND_PACKAGE(Threads REQUIRED)
+find_package(Threads REQUIRED)
+find_package(Boost REQUIRED COMPONENTS headers system program_options log log_setup)
+find_package(yaml-cpp REQUIRED)
+find_package(quill REQUIRED)
+find_package(fmt REQUIRED)
 
-SET(Boost_USE_MULTITHREADED ON)
-FIND_PACKAGE(Boost REQUIRED COMPONENTS system program_options log log_setup REQUIRED)
-
-FIND_PACKAGE(yaml-cpp REQUIRED)
-LINK_DIRECTORIES(${YAML_CPP_LIBRARY_DIR})
-
-ADD_LIBRARY(ufw_app SHARED
+add_library(ufw_app SHARED
     application.hpp
     configuration.hpp
     entity.hpp
@@ -20,46 +18,49 @@ ADD_LIBRARY(ufw_app SHARED
     application.cpp
     logger.cpp)
 
-SET_TARGET_PROPERTIES(ufw_app PROPERTIES
+set_target_properties(ufw_app PROPERTIES
     PUBLIC_HEADER "application.hpp;configuration.hpp;entity.hpp;exception_types.hpp;library.hpp;library_repository.hpp;lifecycle_participant.hpp;loader.hpp;logger.hpp;plugin_repository.hpp")
-    
-TARGET_COMPILE_DEFINITIONS(ufw_app PUBLIC "-DBOOST_LOG_DYN_LINK")
 
-TARGET_LINK_LIBRARIES(ufw_app
-    yaml-cpp
-    Boost::log_setup
-    Boost::program_options
-    Boost::system
-    Boost::log
-    ${CMAKE_THREAD_LIBS_INIT}
-    )
+target_compile_definitions(ufw_app PUBLIC BOOST_LOG_DYN_LINK)
 
-INCLUDE_DIRECTORIES(${Boost_INCLUDE_DIR})
+target_link_libraries(ufw_app
+    PUBLIC
+        yaml-cpp::yaml-cpp
+        Boost::headers
+        Boost::program_options
+        Boost::system
+        Boost::log
+        Boost::log_setup
+    PRIVATE
+        quill::quill
+        fmt::fmt
+        Threads::Threads)
 
-INSTALL(TARGETS ufw_app EXPORT UfwTargets
+install(TARGETS ufw_app EXPORT UfwTargets
     LIBRARY DESTINATION "${INSTALL_LIB_DIR}" COMPONENT shlib
     PUBLIC_HEADER DESTINATION "${INSTALL_INCLUDE_DIR}/ufw/app"
     COMPONENT dev)
 
 
-ADD_LIBRARY(example SHARED
+add_library(example SHARED
     example.cpp)
 
-TARGET_LINK_LIBRARIES(example
-    ufw_app
-    ${CMAKE_THREAD_LIBS_INIT}
-    )
+target_link_libraries(example
+    PRIVATE
+        ufw_app
+        Threads::Threads)
 
-INSTALL(TARGETS example EXPORT UfwTargets
+install(TARGETS example EXPORT UfwTargets
     LIBRARY DESTINATION "${INSTALL_LIB_DIR}" COMPONENT shlib)
 
 
-ADD_EXECUTABLE(ufw_launcher
+add_executable(ufw_launcher
     main.cpp)
 
-TARGET_LINK_LIBRARIES(ufw_launcher
-    ufw_app
-    ${CMAKE_DL_LIBS})
+target_link_libraries(ufw_launcher
+    PRIVATE
+        ufw_app
+        ${CMAKE_DL_LIBS})
 
-INSTALL(TARGETS ufw_launcher EXPORT UfwTargets
+install(TARGETS ufw_launcher EXPORT UfwTargets
     RUNTIME DESTINATION "${INSTALL_BIN_DIR}" COMPONENT bin)
