@@ -1,0 +1,18 @@
+# Build artifacts
+build/
+cmake-build-*/
+install/
+
+# Conan v2 generates this at the source root after `conan install`
+CMakeUserPresets.json
+
+# Editor / IDE
+.idea/
+.vscode/
+.cache/
+
+# Tooling
+compile_commands.json
+
+# OS
+.DS_Store

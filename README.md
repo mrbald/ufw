@@ -1,6 +1,6 @@
 &mu;FW - Micro Framework
 ========================
-[![build](https://api.travis-ci.org/mrbald/ufw.svg?branch=master)](https://travis-ci.org/mrbald/ufw)
+[![ci](https://github.com/mrbald/ufw/actions/workflows/ci.yml/badge.svg)](https://github.com/mrbald/ufw/actions/workflows/ci.yml)
 [![Join the chat at https://gitter.im/mrbald-ufw/Lobby](https://badges.gitter.im/mrbald-ufw/Lobby.svg)](https://gitter.im/mrbald-ufw/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 ![Licence - ](https://img.shields.io/github/license/mrbald/ufw.svg)
 
@@ -76,12 +76,12 @@ All other concurrency models are incremental to the `ufw.application`.
 
 ### Logging
 
-Logging is a part of the framework. Modules have scoped tagged loggers (with help of macros and context-sensitive symbol lookup).
-The Boost.Log library was taken as Boost is already on the dependency list and the subject library is flexible and reliable.
-This logger is not the fastest around, but it's probably one of the cheapest to integrate with.
+Logging is part of the framework, backed by [Quill][13] (asynchronous, formatting on a backend thread, [fmt][14]-style format strings).
+Each entity owns a named logger; the logger name is rendered in the log line via Quill's `%(logger)` pattern token.
+Macros `LOG_DBG / LOG_INF / LOG_WRN / LOG_ERR` expand to `QUILL_LOG_*` and resolve `get_logger()` via unqualified lookup, so they pick up the entity's own logger inside member functions and a process-wide root logger elsewhere.
 
 The logger is configured the same way as any other entity.
-The _config_ part of the configuration is passed unchanged to the Boost.Log initializer.
+The _config_ block is decoded into a typed `logger_config { severity, pattern, timestamp_pattern }`.
 See the configuration file fragment below as an example.
 
 Trying It
@@ -91,29 +91,23 @@ Trying It
 
 The below configuration fragment has a single instance of the _example_ module.
 
-```
+```yaml
 ---
 application:
 
   entities:
     # ====== logger ======
     - name: LOGGER
-      config: |
-        [Core]
-        DisableLogging=false
-        LogSeverity=error
-
-        [Sinks.Console]
-        Destination=Console
-        Format="%TimeStamp(format=\"%H:%M:%S.%f\")% | %Severity(format=\"%6s\")% | %ThreadPID% | %Entity% - %Tag%%Message%"
-        Asynchronous=true
-        AutoFlush=true
+      config:
+        severity: info
+        pattern: "%(time) | %(log_level:<7) | %(thread_id) | %(logger) - %(message)"
+        timestamp_pattern: "%H:%M:%S.%Qms"
 
     # ====== a dynamic library ======
     - name: example_lib
       loader_ref: LIBRARY
       config:
-        filename: libexample.so
+        filename: libexample.so   # libexample.dylib on macOS
 
     # ====== an entity -- plugin from a dynamic library ======
     - name: example_plugin
@@ -122,7 +116,6 @@ application:
         library_ref: example_lib
         constructor: example_ctor
 ...
-
 ```
 
 To run it, store the above fragment into a YAML file (say config.yaml) and run the &mu;FW launcher as `ufw_launcher -c config.yaml`.
@@ -131,66 +124,62 @@ The console log should look similar to the below screenshot.
 
 ![screenshot](screenshot.png)
 
-Building Dependencies
----------------------
-
-The author's main development platforms are x86\_64 [Arch Linux][9] and [macOS + Homebrew][10].
-Both have quite up to date versions of all _&mu;FW_ dependencies.
-For those working in a less bleeding-edge enviroronments - below are the instructions for building the dependencies from scratch.
-
-### Boost
-Use instructions from the [Boost Home Page](https://boost.org)
-The _&mu;FW_ is using these modules:
-* system
-* program_options
-* log
-* boost_unit_test_framework
-
-### YamlCPP
-
-```
-$ git clone https://github.com/jbeder/yaml-cpp.git
-$ mkdir yaml-cpp-build && cd yaml-cpp-build
-$ cmake -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release ../yaml-cpp
-$ make -j$(nproc) && sudo make install
-```
-
-### CapNProto (optional - examples)
-
-```
-$ git clone https://github.com/sandstorm-io/capnproto.git
-$ mkdir capnproto-build && cd capnproto-build
-$ cmake -DCMAKE_BUILD_TYPE=Release ../capnproto/c++
-$ make -j$(nproc) && sudo make install
-```
-
 Building
 --------
 
+Dependencies are managed via [Conan 2][15]. The toolchain requirements are CMake &ge; 3.27 and a C++23-capable compiler (gcc 13, clang 18, or Apple clang 15+).
+
+### One-time setup
+
+```sh
+$ pip install 'conan==2.7.*'
+$ conan profile detect --force
+# Bump cppstd in the detected profile to gnu23 (the project is C++23):
+$ sed -i.bak 's/^compiler.cppstd=.*/compiler.cppstd=gnu23/' ~/.conan2/profiles/default
+```
+
 ### Compiling
 
-    $ git clone https://github.com/mrbald/ufw.git
-    $ mkdir ufw-build && cd ufw-build
-    $ cmake -DCMAKE_BUILD_TYPE=Release [-DCMAKE_INSTALL_PREFIX=$HOME/local] ../ufw
-    $ make -j$(nproc)
+```sh
+$ git clone https://github.com/mrbald/ufw.git && cd ufw
+$ conan install . -s build_type=Debug --build=missing
+$ cmake --preset conan-debug
+$ cmake --build --preset conan-debug -j
+```
+
+For a Release build, swap `Debug` for `Release` and `conan-debug` for `conan-release`.
+
+### Build options
+
+| Option                  | Default              | Effect                                                      |
+|-------------------------|----------------------|-------------------------------------------------------------|
+| `UFW_ENABLE_SANITIZERS` | `ON` in Debug, `OFF` | AddressSanitizer + UndefinedBehaviorSanitizer on all targets |
+| `UFW_ENABLE_CLANG_TIDY` | `ON`                 | Run clang-tidy on `ufw_app` / `ufw_topics` (silently skipped if `clang-tidy` is not in `PATH`) |
+| `UFW_USE_CCACHE`        | `OFF`                | Use `ccache` as the compiler launcher when available         |
 
 ### Running tests
 
-To run all tests run
-
-    $ make unit-test
-
-To run individual tests with verbose output run
-
-    $ make BOOST_TEST_LOG_LEVEL=all BOOST_TEST_RUN_FILTERS=ufw_app/* unit-test
+```sh
+$ cmake --build --preset conan-debug --target unit-test
+```
 
 ### Running benchmarks
 
-    $ make benchmark
+```sh
+$ cmake --build --preset conan-debug --target benchmark
+```
 
 ### Installing
 
-    $ sudo make install
+```sh
+$ cmake --install build/Debug --prefix /path/to/prefix
+```
+
+The install ships `UfwConfig.cmake` / `UfwConfigVersion.cmake` / `UfwTargets.cmake`, so downstream consumers can `find_package(Ufw)` and link the namespaced targets `ufw::ufw_app`, `ufw::ufw_topics`, etc.
+
+### Sanitizers and the plugin model
+
+The framework loads plugins via `dlopen`, so AddressSanitizer must be present (or absent) consistently across the launcher and every plugin shared library. The `UFW_ENABLE_SANITIZERS` option enforces this uniformly across all first-party targets. On macOS, Apple clang embeds the toolchain rpath that points at `libclang_rt.asan_osx_dynamic.dylib`, so no `DYLD_LIBRARY_PATH` workarounds are needed. On Linux, the asan runtime is resolved at link time via `-fsanitize=address` on the launcher.
 
 Using
 -----
@@ -223,3 +212,6 @@ References
 [10]: https://brew.sh/
 [11]: https://en.wikipedia.org/wiki/Library_(computing)
 [12]: https://en.wikipedia.org/wiki/Plug-in_(computing)
+[13]: https://github.com/odygrd/quill
+[14]: https://fmt.dev/
+[15]: https://docs.conan.io/2/
