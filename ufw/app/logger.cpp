@@ -29,12 +29,12 @@ namespace {
 
 quill::LogLevel to_log_level(std::string const& s)
 {
-    if (s == "trace") return quill::LogLevel::TraceL3;
-    if (s == "debug") return quill::LogLevel::Debug;
-    if (s == "info") return quill::LogLevel::Info;
-    if (s == "warning" || s == "warn") return quill::LogLevel::Warning;
-    if (s == "error") return quill::LogLevel::Error;
-    if (s == "critical" || s == "fatal") return quill::LogLevel::Critical;
+    if (s == "trace") { return quill::LogLevel::TraceL3; }
+    if (s == "debug") { return quill::LogLevel::Debug; }
+    if (s == "info") { return quill::LogLevel::Info; }
+    if (s == "warning" || s == "warn") { return quill::LogLevel::Warning; }
+    if (s == "error") { return quill::LogLevel::Error; }
+    if (s == "critical" || s == "fatal") { return quill::LogLevel::Critical; }
     return quill::LogLevel::Info;
 }
 

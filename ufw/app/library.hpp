@@ -28,17 +28,23 @@ struct library final: std::enable_shared_from_this<library> {
 
     ~library() noexcept
     {
-        if (handle_) dlclose(handle_);
+        if (handle_) { dlclose(handle_); }
     }
+
+    // Owns a dlopen handle and is only ever held behind a shared_ptr; never copied or moved.
+    library(library const&) = delete;
+    library& operator=(library const&) = delete;
+    library(library&&) = delete;
+    library& operator=(library&&) = delete;
 
     template <class F>
     std::function<F> function(std::string const& name) const
     {
-        if (!handle_) throw std::runtime_error("library not open");
+        if (!handle_) { throw std::runtime_error("library not open"); }
         dlerror();
-        auto fp = reinterpret_cast<typename std::add_pointer<F>::type>(dlsym(handle_, name.c_str()));
+        auto fp = reinterpret_cast<std::add_pointer_t<F>>(dlsym(handle_, name.c_str()));
         const char *dlsym_error = dlerror();
-        if (dlsym_error) throw std::runtime_error(dlsym_error);
+        if (dlsym_error) { throw std::runtime_error(dlsym_error); }
 
         // aliased shared_ptr to hold the library alive until all references
         // to functions loaded from it are disposed
@@ -50,7 +56,7 @@ struct library final: std::enable_shared_from_this<library> {
     library(char const* path):
         handle_(dlopen(path, RTLD_LAZY))
     {
-        if (!handle_) throw std::runtime_error(dlerror());
+        if (!handle_) { throw std::runtime_error(dlerror()); }
     }
 
 private:

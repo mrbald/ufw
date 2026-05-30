@@ -38,8 +38,8 @@ struct messaging_error: transient_error
             msg_{std::move(msg)},
             src_{src} {}
 
-    std::shared_ptr<message const> msg() const { return msg_; }
-    resolved_entity_id origin() { return src_; }
+    [[nodiscard]] std::shared_ptr<message const> msg() const { return msg_; }
+    [[nodiscard]] resolved_entity_id origin() const { return src_; }
 private:
     std::shared_ptr<message const> const msg_;
     resolved_entity_id const src_;

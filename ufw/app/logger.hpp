@@ -70,7 +70,9 @@ struct convert<ufw::logger_config>
     static bool decode(Node const& node, ufw::logger_config& rhs)
     {
         if (!node.IsMap())
+        {
             return false;
+        }
         CFG_DECODE_IF_SET(severity);
         CFG_DECODE_IF_SET(pattern);
         CFG_DECODE_IF_SET(timestamp_pattern);

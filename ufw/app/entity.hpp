@@ -14,6 +14,11 @@ namespace ufw {
 using entity_id = std::string;
 using resolved_entity_id = size_t;
 
+// Sentinel for "not yet resolved" / "no such entity". resolve_entity_id()
+// returns this on a miss; entity_ref starts here until resolve() succeeds.
+inline constexpr resolved_entity_id unresolved_entity_id =
+        static_cast<resolved_entity_id>(-1);
+
 struct application;
 struct lifecycle_participant;
 
@@ -29,10 +34,16 @@ struct entity
             id_{id}, rid_{rid}, app_{app} {}
     virtual ~entity() = default;
 
-    entity_id const& id() const noexcept { return id_; }
-    resolved_entity_id resolved_id() const noexcept { return rid_; }
+    // Entities are identity objects: held by unique_ptr, never copied or moved.
+    entity(entity const&) = delete;
+    entity& operator=(entity const&) = delete;
+    entity(entity&&) = delete;
+    entity& operator=(entity&&) = delete;
 
-    application& app() const noexcept { return app_; }
+    [[nodiscard]] entity_id const& id() const noexcept { return id_; }
+    [[nodiscard]] resolved_entity_id resolved_id() const noexcept { return rid_; }
+
+    [[nodiscard]] application& app() const noexcept { return app_; }
 
 private:
     entity_id const id_;
@@ -50,7 +61,7 @@ template <class T>
 struct entity_ref
 {
     T* operator->() const { return target_; }
-    T* get() const { return target_; }
+    [[nodiscard]] T* get() const { return target_; }
 
     explicit operator T&() { return *target_; }
     explicit operator T const&() const { return *target_; }
@@ -61,8 +72,8 @@ struct entity_ref
             id_ {id},
             app_ {app} {}
 
-    entity_id const& id() { return id_; }
-    resolved_entity_id resolved_id() const { return resolved_id_; }
+    [[nodiscard]] entity_id const& id() const { return id_; }
+    [[nodiscard]] resolved_entity_id resolved_id() const { return resolved_id_; }
 
     void resolve();
 
@@ -70,7 +81,7 @@ private:
     entity_id const id_;
     application& app_;
 
-    resolved_entity_id resolved_id_;
+    resolved_entity_id resolved_id_ {unresolved_entity_id};
     T* target_ {};
 };
 

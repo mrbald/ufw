@@ -1,4 +1,24 @@
 ---
+# clang-tidy baseline for uFW. HeaderFilterRegex restricts analysis to
+# first-party headers. Run via `tools/lint.py` (also exposed as the CMake
+# `tidy` / `tidy-fix` targets) so template-only headers are analysed as their
+# own translation units — a .cpp TU never instantiates them, so their findings
+# would otherwise be invisible.
+#
+# Project-specific suppressions below the upstream noise, and why each is NOT
+# grounded for this codebase:
+#   pro-bounds-avoid-unchecked-container-access — pedantic (clang>=19); wants
+#       .at()/gsl on every map/vector access. Off.
+#   avoid-const-or-ref-data-members — entities are intentionally non-copyable
+#       identity objects (const id_ + application& app_); the check fights the
+#       framework's design.
+#   macro-usage — the LOG_* macros resolve get_logger() at the call site via
+#       unqualified lookup; they cannot be functions.
+#   pro-bounds-array-to-pointer-decay — unavoidable string-literal decay.
+#   modernize-pass-by-value — the entity ctor signature is a fixed framework
+#       contract (entity_id const&, ...); see CLAUDE.md.
+#   readability-implicit-bool-conversion — idiomatic pointer/count truthiness.
+# avoid-do-while is kept, but told to ignore the do{...}while(false) macro idiom.
 Checks: >
   -*,
   bugprone-*,
@@ -13,13 +33,21 @@ Checks: >
   -cppcoreguidelines-pro-type-reinterpret-cast,
   -cppcoreguidelines-pro-type-vararg,
   -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
+  -cppcoreguidelines-avoid-const-or-ref-data-members,
+  -cppcoreguidelines-macro-usage,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
   modernize-*,
   -modernize-use-trailing-return-type,
+  -modernize-pass-by-value,
   performance-*,
   readability-*,
   -readability-identifier-length,
   -readability-magic-numbers,
   -readability-named-parameter,
+  -readability-implicit-bool-conversion,
 WarningsAsErrors: '*'
 HeaderFilterRegex: '^(?!.*conan2).*ufw/.*\.(hpp|h)$'
 FormatStyle: none
+CheckOptions:
+  cppcoreguidelines-avoid-do-while.IgnoreMacros: true

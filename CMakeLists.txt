@@ -9,6 +9,9 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Always emit compile_commands.json — consumed by tools/lint.py, clangd, and IDEs.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # -----------------------------------------------------------------------------
 # Options
 
@@ -36,15 +39,35 @@ if(UFW_USE_CCACHE)
     endif()
 endif()
 
+# clang-tidy serves two consumers: the per-target integration below
+# (UFW_ENABLE_CLANG_TIDY → CXX_CLANG_TIDY on first-party targets) and the
+# standalone `tidy` / `tidy-fix` targets, which also lint template-only headers
+# that a .cpp TU never instantiates. Find it unconditionally for both.
+find_program(CLANG_TIDY_PROGRAM NAMES clang-tidy)
+
 set(UFW_CLANG_TIDY_COMMAND "")
 if(UFW_ENABLE_CLANG_TIDY)
-    find_program(CLANG_TIDY_PROGRAM clang-tidy)
     if(CLANG_TIDY_PROGRAM)
         message(STATUS "clang-tidy enabled (${CLANG_TIDY_PROGRAM})")
         set(UFW_CLANG_TIDY_COMMAND "${CLANG_TIDY_PROGRAM}")
     else()
-        message(STATUS "clang-tidy not found, skipping")
+        message(STATUS "clang-tidy not found, skipping per-target integration")
     endif()
+endif()
+
+# Standalone lint harness — single source of truth in tools/lint.py.
+find_program(PYTHON3_PROGRAM NAMES python3 python)
+if(CLANG_TIDY_PROGRAM AND PYTHON3_PROGRAM)
+    add_custom_target(tidy
+        COMMAND ${PYTHON3_PROGRAM} ${PROJECT_SOURCE_DIR}/tools/lint.py
+                --build-dir ${PROJECT_BINARY_DIR} --clang-tidy ${CLANG_TIDY_PROGRAM}
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR} USES_TERMINAL
+        COMMENT "clang-tidy: first-party TUs + standalone headers")
+    add_custom_target(tidy-fix
+        COMMAND ${PYTHON3_PROGRAM} ${PROJECT_SOURCE_DIR}/tools/lint.py
+                --build-dir ${PROJECT_BINARY_DIR} --clang-tidy ${CLANG_TIDY_PROGRAM} --fix
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR} USES_TERMINAL
+        COMMENT "clang-tidy --fix: first-party TUs + standalone headers")
 endif()
 
 # -----------------------------------------------------------------------------

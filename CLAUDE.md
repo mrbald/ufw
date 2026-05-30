@@ -31,6 +31,7 @@ cmake --build --preset conan-debug -j
 Custom targets:
 - `cmake --build --preset conan-debug --target unit-test` — Boost.Test suite (`tests/`).
 - `cmake --build --preset conan-debug --target benchmark` — Google Benchmark suite (`benchmarks/`).
+- `cmake --build --preset conan-debug --target tidy` (or `tidy-fix`) — runs `tools/lint.py`, the clang-tidy harness. Unlike the per-target `CXX_CLANG_TIDY` integration, it also lints every first-party header **as a standalone TU**, so findings in template-only headers (e.g. `entity_ref<T>`, never instantiated by a `.cpp`) are caught. `--json` emits a machine-readable summary; `--export-fixes <dir>` dumps clang-tidy's raw YAML. Needs `clang-tidy` on `PATH` (brew llvm is keg-only).
 - `cmake --install build/Debug --prefix <path>` — installs libs/headers/binaries plus `UfwConfig.cmake` / `UfwTargets.cmake` for downstream consumers (`find_package(Ufw)` → `ufw::ufw_app`, `ufw::ufw_topics`, etc.).
 
 ## Running the launcher
@@ -73,3 +74,24 @@ The framework is small enough that the whole runtime model lives in `ufw/app/`.
 ## CI
 
 `.github/workflows/ci.yml` runs the matrix `[ubuntu-24.04 (gcc-13, clang-18), macos-14] × [Debug, Release]` with Conan caching and `ccache` via `hendrikmuhs/ccache-action`. There is no Travis config — `.travis.yml` was retired during the refresh.
+
+## Working with me
+
+The repo owner has deep C++ / distributed-systems experience; in this repo he is the domain authority. Work accordingly:
+
+- **Spar, don't agree** — surface cracks with reasoning; a yes-man is useless here.
+- **One hat at a time; name it** — finish a slice before starting another.
+- **Right-size** — the cheapest thing that works wins; building or abstracting is a bias, not a default. Expect hard correction for over-engineering.
+- **Don't roleplay expertise** — you're Claude: strong on distributed-systems patterns, modern C++, build tooling, and prior art; weaker on this framework's hard-won design calls. Attempt, expect correction, name your edges.
+- **Capture corrections** — when a correction lands on something the owner knows cold, note it as a one-line candidate principle; these feed the model-agnostic tool catalog in the hats core (wired below).
+
+<!-- hats:core -->
+## Engineering core (hats)
+
+This project uses the shared **hats engineering core**. Before substantive
+work, read and follow `~/.hats/docs/USING.md`; it loads the hard rules
+(`GUARDRAILS.md`), the engineering priors (`PRIORS.md`), and the validated
+thinking tools. Re-read each session: the core is the source of truth and
+its updates propagate here automatically. If `~/.hats` does not resolve,
+the core is not linked on this machine (see the hats repo's README).
+<!-- /hats:core -->

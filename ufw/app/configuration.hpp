@@ -66,7 +66,9 @@ struct convert<ufw::entity_config> {
     static bool decode(const Node& node, ufw::entity_config& rhs)
     {
         if (node.IsSequence())
+        {
             return false;
+        }
 
         CFG_DECODE(name);
         CFG_DECODE_IF_SET(loader_ref);
@@ -87,7 +89,9 @@ struct convert<ufw::application_config> {
     static bool decode(const Node& node, ufw::application_config& rhs)
     {
         if (node.IsSequence())
+        {
             return false;
+        }
         CFG_DECODE(entities);
         return true;
     }

@@ -5,14 +5,21 @@
 
 #pragma once
 
+#include "entity.hpp"  // up() does dynamic_cast<entity const*> + get_logger(): needs the complete type
 #include "logger.hpp"
 
 namespace ufw {
 
-struct entity;
-
 struct lifecycle_participant
 {
+    lifecycle_participant() = default;
+
+    // Participants are non-copyable, non-movable interface objects.
+    lifecycle_participant(lifecycle_participant const&) = delete;
+    lifecycle_participant& operator=(lifecycle_participant const&) = delete;
+    lifecycle_participant(lifecycle_participant&&) = delete;
+    lifecycle_participant& operator=(lifecycle_participant&&) = delete;
+
     // at this stage participants may discover and cache references (including strongly typed) to each other
     virtual void init() {}
 
@@ -22,7 +29,7 @@ struct lifecycle_participant
     // at this stage participants may start messaging each other
     virtual void up() const noexcept final
     {
-        auto* entity_ptr = dynamic_cast<entity const*>(this);
+        auto const* entity_ptr = dynamic_cast<entity const*>(this);
         if (entity_ptr)
         {
             auto const get_logger = [&]{ return entity_ptr->get_logger(); };

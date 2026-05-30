@@ -10,6 +10,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 #include <iostream>
@@ -43,7 +44,9 @@ struct default_loader: loader
     void register_loader(entity_id const& id, loader_func_t loader_func)
     {
         if (!loader_funcs_.emplace(id, std::move(loader_func)).second)
+        {
             throw fatal_error("duplicate loader registration for enity ID " + id);
+        }
         LOG_INF("registered loader function for {}", id);
     }
 
@@ -63,10 +66,13 @@ application::application()
     });
 }
 
+// NOLINTNEXTLINE(readability-make-member-function-const) — mutates app config via the default_loader; const would mislead
 void application::register_loader(entity_id const& id, loader_func_t loader_func)
 {
     if (structure_locked_)
+    {
         throw fatal_error("cannot register loader - application structure already locked, likely a bug in the code");
+    }
 
     get<default_loader>("").register_loader(id, std::move(loader_func));
 }
@@ -75,11 +81,15 @@ void application::register_loader(entity_id const& id, loader_func_t loader_func
 resolved_entity_id application::add(entity_id const& id, entity_id const& loader_id, config_t const& cfg)
 {
     if (structure_locked_)
+    {
         throw fatal_error("cannot load entity - application structure already locked, likely a bug in the code");
+    }
 
     resolved_entity_id const rid = entities_.size();
     if (!entity_ids_.emplace(id, rid).second)
+    {
         throw fatal_error("duplicate entity ID, check configuration");
+    }
 
     auto loader_rid = resolve_entity_id(loader_id);
     if (loader_rid < entities_.size())
@@ -99,7 +109,7 @@ resolved_entity_id application::add(entity_id const& id, entity_id const& loader
 resolved_entity_id application::resolve_entity_id(entity_id const& id) const
 {
     auto it = entity_ids_.find(id);
-    return it == entity_ids_.end() ? -1 : it->second;
+    return it == entity_ids_.end() ? unresolved_entity_id : it->second;
 }
 
 entity& application::get(resolved_entity_id rid) const
@@ -121,9 +131,9 @@ void application::load(int argc, char const** argv)
     po::variables_map vm;
     po::store(po::parse_command_line(argc, argv, desc), vm);
 
-    if (vm.count("help"))
+    if (vm.contains("help"))
     {
-        std::cout << desc << std::endl;
+        std::cout << desc << '\n';
         throw fatal_error("help displayed, bye");
     }
 
@@ -131,7 +141,10 @@ void application::load(int argc, char const** argv)
 
     LOG_INF("loading configuration from {}", config_file);
     std::ifstream in(config_file.c_str());
-    if (!in) throw std::runtime_error("config file not found");
+    if (!in)
+    {
+        throw std::runtime_error("config file not found");
+    }
     YAML::Node node = YAML::Load(in);
 
     load(node["application"].as<application_config>());
@@ -139,13 +152,32 @@ void application::load(int argc, char const** argv)
 
 void application::run()
 {
+    init_participants();
+    install_signal_handler();
+    schedule_up();
+    start_participants();
+
+    work_ = std::make_unique<boost::asio::io_context::work>(context_);
+    context_.run();
+
+    // init/start ran in declaration order; stop/fini run in reverse.
+    std::ranges::reverse(lifecycle_participants_);
+    stop_participants();
+    fini_participants();
+}
+
+void application::init_participants()
+{
     LOG_INF("initializing lifecycle participants");
     for (lifecycle_participant& x: lifecycle_participants_)
     {
         LOG_INF("initializing {}", dynamic_cast<entity&>(x).id());
         x.init();
     }
+}
 
+void application::install_signal_handler()
+{
     terminal_signals_.async_wait([this](boost::system::error_code const& error, int signal_number)
     {
         if (!error)
@@ -155,31 +187,40 @@ void application::run()
             shutdown();
         }
     });
+}
 
+void application::schedule_up()
+{
     LOG_INF("scheduling lifecycle participants ping");
     for (lifecycle_participant& x: lifecycle_participants_)
+    {
         context_.post([&x]{ x.up(); }); // TODO: VL: ping participants via their inboxes (once inboxes are implemented)
+    }
     context_.post([this]{ LOG_INF("UP"); });
+}
 
+void application::start_participants()
+{
     LOG_INF("starting lifecycle participants");
     for (lifecycle_participant& x: lifecycle_participants_)
     {
         LOG_INF("starting {}", dynamic_cast<entity&>(x).id());
         x.start();
     }
+}
 
-    work_ = std::make_unique<boost::asio::io_context::work>(context_);
-    context_.run();
-
-    std::reverse(begin(lifecycle_participants_), end(lifecycle_participants_));
-
+void application::stop_participants()
+{
     LOG_INF("stopping lifecycle participants");
     for (lifecycle_participant& x: lifecycle_participants_)
     {
         LOG_INF("stopping {}", dynamic_cast<entity&>(x).id());
         x.stop();
     }
+}
 
+void application::fini_participants()
+{
     LOG_INF("deinitializing lifecycle participants");
     for (lifecycle_participant& x: lifecycle_participants_)
     {
@@ -196,8 +237,10 @@ void application::shutdown()
 
 void application::load(application_config const& cfg)
 {
-    for (auto& entity_cfg: cfg.entities)
+    for (auto const& entity_cfg: cfg.entities)
+    {
         add(entity_cfg.name, entity_cfg.loader_ref, entity_cfg.config);
+    }
 
     entities_.shrink_to_fit();
 

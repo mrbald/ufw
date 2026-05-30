@@ -57,15 +57,19 @@ struct application
     template <class T, class... Args>
     resolved_entity_id add(entity_id const& id, Args&&... args)
     {
-        static_assert(std::is_base_of<entity, T>::value, "");
+        static_assert(std::is_base_of_v<entity, T>);
 
         if (structure_locked_)
+        {
             throw fatal_error("cannot add entity - application structure already locked, likely a bug in the code");
+        }
 
         resolved_entity_id const rid = entities_.size();
 
         if (!entity_ids_.emplace(id, rid).second)
+        {
             throw fatal_error("duplicate entity ID, check configuration");
+        }
 
         entities_.push_back(std::make_unique<T>(std::forward<Args>(args)..., id, rid, *this));
 
@@ -101,7 +105,9 @@ struct application
     {
         auto rid = resolve_entity_id(id);
         if (rid >= entities_.size())
+        {
             throw fatal_error("no entity with ID " + id);
+        }
         return get<T>(rid);
     }
 
@@ -112,7 +118,9 @@ struct application
         {
             auto* casted_ptr = dynamic_cast<T*>(base_ptr.get());
             if (casted_ptr)
+            {
                 f(*casted_ptr);
+            }
         }
     }
 
@@ -126,10 +134,18 @@ struct application
 
     boost::asio::io_context& context() { return context_; }
 private:
-    entity_id id() const { return "app"; } // for ENTITY_LOGGER macro to work
+    static entity_id id() { return "app"; } // for ENTITY_LOGGER macro to work
 
-private:
     void load(application_config const& cfg);
+
+    // run() phases, factored out of the lifecycle driver (init/start forward,
+    // stop/fini in reverse — the reversal happens once in run()).
+    void init_participants();
+    void install_signal_handler();
+    void schedule_up();
+    void start_participants();
+    void stop_participants();
+    void fini_participants();
 
     boost::asio::io_context context_;
     boost::asio::signal_set terminal_signals_ {context_, SIGINT/*, SIGTERM*/};
@@ -150,8 +166,10 @@ template <class T>
 void entity_ref<T>::resolve()
 {
     resolved_id_ = app_.resolve_entity_id(id_);
-    if (resolved_id_ == resolved_entity_id(-1))
+    if (resolved_id_ == unresolved_entity_id)
+    {
         throw fatal_error("no entity with ID " + id_);
+    }
     target_ = &app_.get<T>(resolved_id_);
 }
 
