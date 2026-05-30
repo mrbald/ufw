@@ -1,6 +1,7 @@
 #include "entity.hpp"
 #include "lifecycle_participant.hpp"
 #include "application.hpp"
+#include "plugin.hpp"
 
 #include <boost/asio/steady_timer.hpp>
 
@@ -46,7 +47,9 @@ private:
     boost::asio::steady_timer timer_;
 };
 
-extern "C" ufw::entity* example_ctor(ufw::entity_id const& id, ufw::resolved_entity_id rid, ufw::application& app) {
+UFW_PLUGIN(); // stamp this shared library with the uFW ABI version
+
+UFW_PLUGIN_ENTITY_CTOR(example_ctor) {
     return new example {id, rid, app};
 }
 

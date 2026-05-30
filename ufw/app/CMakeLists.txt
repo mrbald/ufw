@@ -4,6 +4,10 @@ find_package(yaml-cpp REQUIRED)
 find_package(quill REQUIRED)
 find_package(fmt REQUIRED)
 
+# Stamp the ABI version (PROJECT_VERSION) into a generated header, used by both
+# the launcher (the LIBRARY loader's check) and plugins (the UFW_PLUGIN() stamp).
+configure_file(version.hpp.in "${PROJECT_BINARY_DIR}/ufw/app/version.hpp" @ONLY)
+
 add_library(ufw_app SHARED
     application.hpp
     configuration.hpp
@@ -14,12 +18,13 @@ add_library(ufw_app SHARED
     lifecycle_participant.hpp
     loader.hpp
     logger.hpp
+    plugin.hpp
     plugin_repository.hpp
     application.cpp
     logger.cpp)
 
 set_target_properties(ufw_app PROPERTIES
-    PUBLIC_HEADER "application.hpp;configuration.hpp;entity.hpp;exception_types.hpp;library.hpp;library_repository.hpp;lifecycle_participant.hpp;loader.hpp;logger.hpp;plugin_repository.hpp")
+    PUBLIC_HEADER "application.hpp;configuration.hpp;entity.hpp;exception_types.hpp;library.hpp;library_repository.hpp;lifecycle_participant.hpp;loader.hpp;logger.hpp;plugin.hpp;plugin_repository.hpp;${PROJECT_BINARY_DIR}/ufw/app/version.hpp")
 
 target_compile_features(ufw_app PUBLIC cxx_std_23)
 

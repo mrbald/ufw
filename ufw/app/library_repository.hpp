@@ -11,9 +11,14 @@
 #include "library.hpp"
 #include "loader.hpp"
 #include "configuration.hpp"
+#include "exception_types.hpp"
+
+#include <ufw/app/version.hpp>
 
 #include <memory>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <map>
 
 namespace ufw {
@@ -24,7 +29,29 @@ struct library_repository final: loader {
     std::unique_ptr<entity> load(entity_id const& id, resolved_entity_id rid, config_t const& cfg) override
     {
         auto const filename = cfg["filename"].as<std::string>();
-        return std::make_unique<library_entity>(library::load(filename.c_str()), id, rid, app());
+        auto lib = library::load(filename.c_str());
+
+        // ABI gate: a plugin is only valid in the exact uFW version it was built
+        // against. Require every dlopen'd library to carry the UFW_PLUGIN() stamp
+        // and match this launcher; refuse anything else. This is the one generic
+        // chokepoint for separately-compiled code entering the process — it
+        // covers loaders too, since a loader is just an entity from a library.
+        char const* plugin_version = nullptr;
+        try
+        {
+            plugin_version = lib->function<char const*()>("ufw_abi_version")();
+        }
+        catch (std::runtime_error const&)
+        {
+            throw fatal_error("'" + filename + "' is not a uFW plugin: missing ABI stamp (declare UFW_PLUGIN())");
+        }
+        if (std::string_view{plugin_version} != UFW_VERSION)
+        {
+            throw fatal_error("ABI version mismatch loading '" + filename + "': built against uFW "
+                              + plugin_version + ", launcher is " UFW_VERSION);
+        }
+
+        return std::make_unique<library_entity>(std::move(lib), id, rid, app());
     }
 };
 

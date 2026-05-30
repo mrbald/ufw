@@ -10,6 +10,7 @@
 #include "library_repository.hpp"
 #include "library.hpp"
 #include "loader.hpp"
+#include "plugin.hpp"
 
 #include <memory>
 #include <string>
@@ -28,7 +29,7 @@ struct plugin_repository final: loader {
         entity_ref<library_entity> lib {library_ref, app()};
         lib.resolve();
 
-        return std::unique_ptr<entity>{ lib->function<entity*(entity_id const&, resolved_entity_id, application&)>(constructor)(id, rid, app()) };
+        return std::unique_ptr<entity>{ lib->function<entity_ctor_t>(constructor)(id, rid, app()) };
     }
 };
 
