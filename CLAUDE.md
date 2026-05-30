@@ -68,8 +68,8 @@ The framework is small enough that the whole runtime model lives in `ufw/app/`.
 
 ### Adding new things
 - A new in-process entity type: register a typed factory via `app.register_loader<T, Cfg>("ID")` (template overload) or a raw `loader_func_t` for full control.
-- A new plugin in a shared library: implement `extern "C" ufw::entity* my_ctor(entity_id const&, resolved_entity_id, application&)`, build a `SHARED` library that links `ufw_app`, then load it via `LIBRARY`/`PLUGIN` entries in YAML (see `examples/app.yaml` and `ufw/app/example.cpp`).
-- New entity ctor signature is fixed: `T(..., entity_id const&, resolved_entity_id, application&)` — anything you add must accept these as the trailing args.
+- A new plugin in a shared library: `#include "plugin.hpp"`, declare the constructor with `UFW_PLUGIN_ENTITY_CTOR(my_ctor) { ... }` (the canonical `entity_ctor_t` signature), and stamp the library **once** with `UFW_PLUGIN()`. Build a `SHARED` library that links `ufw_app`, then load it via `LIBRARY`/`PLUGIN` entries in YAML (see `examples/app.yaml` and `ufw/app/example.cpp`). The `LIBRARY` loader (`library_repository`) is a strict ABI gate: it refuses, with a `fatal_error`, any `dlopen`'d library that lacks the `UFW_PLUGIN()` stamp or whose stamped `UFW_VERSION` (from `version.hpp`, generated from `PROJECT_VERSION`) differs from the launcher's. A plugin is only loadable in the exact uFW version it was compiled against; in-binary entities from the static loader cross no ABI boundary and need no stamp.
+- New entity ctor signature is fixed: `T(..., entity_id const&, resolved_entity_id, application&)` — anything you add must accept these as the trailing args. For plugins, `entity_ctor_t` in `plugin.hpp` is the single source of truth for this signature.
 
 ## CI
 
