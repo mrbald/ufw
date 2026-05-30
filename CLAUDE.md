@@ -11,10 +11,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The repo targets CMake (>=3.27), C++23, and Conan 2 for dependency management.
 
 - `conanfile.txt` declares `boost/1.86.0`, `fmt/11.2.0`, `quill/11.1.0`, `yaml-cpp/0.8.0`, `benchmark/1.8.4`, with `boost/*:shared=True`. Generators: `CMakeDeps` + `CMakeToolchain`. Layout: `cmake_layout`.
-- Top-level `CMakeLists.txt` exposes three options:
+- Top-level `CMakeLists.txt` exposes four options:
   - `UFW_ENABLE_SANITIZERS` (default `ON` in Debug, `OFF` otherwise) — wires asan + ubsan via the `ufw::sanitizers` interface lib, linked PRIVATE on every first-party target. Uniformity matters because plugins are `dlopen`'d and ASan presence must match across the launcher and the plugin.
   - `UFW_ENABLE_CLANG_TIDY` (default `ON`) — sets `CXX_CLANG_TIDY` per-target on `ufw_app` and `ufw_topics`; silently skipped if `clang-tidy` is not in `PATH`.
   - `UFW_USE_CCACHE` (default `OFF`) — opts in to a `ccache` compiler launcher.
+  - `UFW_BUILD_PYTHON` (default `OFF`) — builds the nanobind Python control-plane module (`ufw/py/`). Requires `nanobind` (`pip install nanobind`) and Python dev headers; **build it with `-DUFW_ENABLE_SANITIZERS=OFF`** since a stock CPython can't import an ASan module without preloading the runtime.
 - Warnings (`-pedantic -Wall -Wextra -Werror`) live on the `ufw::warnings` INTERFACE lib, linked PRIVATE only on first-party targets so Conan-imported headers don't trip `-Werror`.
 - A curated `.clang-tidy` baseline is shipped at the repo root; the `HeaderFilterRegex` restricts analysis to first-party headers.
 
@@ -41,6 +42,22 @@ ufw_launcher -c <config>.yaml     # default: config.yaml
 ```
 
 `examples/app.yaml` is a working sample (note: the example uses `libexample.dylib` for macOS; switch to `libexample.so` on Linux).
+
+## Python control plane (nanobind)
+
+`ufw/py/module.cpp` is an optional nanobind module (`import ufw`) that lets Python *assemble and drive* an application instead of the YAML launcher — "control plane" in the control/data-plane sense (Python orchestrates; the data plane stays C++). It binds `ufw.application` with `add_loader(name, ufw.Loader.LIBRARY|PLUGIN)`, `load(spec_dict)`, `run()` (GIL released while the io_context runs), and `shutdown()`. The spec dict is converted to a `YAML::Node` and decoded through the *same* `convert<application_config>` path the launcher uses, so plugins and the ABI gate behave identically; a C++ `fatal_error` surfaces as a Python `RuntimeError`. `examples/app.py` mirrors `examples/app.yaml`.
+
+Build + run (separate asan-off dir; dev deps in a local `.venv`):
+
+```sh
+python3 -m venv .venv && .venv/bin/pip install nanobind
+cmake -S . -B build/Py \
+  -DCMAKE_TOOLCHAIN_FILE="$PWD/build/Debug/generators/conan_toolchain.cmake" \
+  -DCMAKE_BUILD_TYPE=Debug -DUFW_ENABLE_SANITIZERS=OFF -DUFW_BUILD_PYTHON=ON \
+  -DPython_EXECUTABLE="$PWD/.venv/bin/python"
+cmake --build build/Py --target ufw_py example -j
+PYTHONPATH=build/Py/ufw/py DYLD_LIBRARY_PATH=build/Py/ufw/app .venv/bin/python examples/app.py
+```
 
 ## Architecture
 

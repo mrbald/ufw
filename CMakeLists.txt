@@ -17,6 +17,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(UFW_USE_CCACHE        "Use ccache as compiler launcher"        OFF)
 option(UFW_ENABLE_CLANG_TIDY "Run clang-tidy on first-party targets"  ON)
+option(UFW_BUILD_PYTHON      "Build the nanobind Python control-plane module" OFF)
 
 # Sanitizers default ON in Debug, OFF otherwise; user may override with
 # -DUFW_ENABLE_SANITIZERS=ON/OFF on the configure line.
@@ -124,6 +125,10 @@ add_subdirectory(ufw/topics)
 add_subdirectory(ufw/app)
 add_subdirectory(tests)
 add_subdirectory(benchmarks)
+
+if(UFW_BUILD_PYTHON)
+    add_subdirectory(ufw/py)
+endif()
 
 # -----------------------------------------------------------------------------
 # Package config / install exports

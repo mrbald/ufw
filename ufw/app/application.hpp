@@ -128,6 +128,11 @@ struct application
 
     void load(int argc, char const** argv);
 
+    // Assemble entities from an in-memory config, discover lifecycle
+    // participants, and lock the structure. The file-based load() above decodes
+    // YAML into this; the Python control plane builds it from a dict.
+    void load(application_config const& cfg);
+
     void run();
 
     void shutdown();
@@ -135,8 +140,6 @@ struct application
     boost::asio::io_context& context() { return context_; }
 private:
     static entity_id id() { return "app"; } // for ENTITY_LOGGER macro to work
-
-    void load(application_config const& cfg);
 
     // run() phases, factored out of the lifecycle driver (init/start forward,
     // stop/fini in reverse — the reversal happens once in run()).

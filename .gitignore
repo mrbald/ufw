@@ -6,6 +6,11 @@ install/
 # Conan v2 generates this at the source root after `conan install`
 CMakeUserPresets.json
 
+# Python (nanobind bindings dev venv)
+.venv/
+__pycache__/
+*.so
+
 # Editor / IDE
 .idea/
 .vscode/
