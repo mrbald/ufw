@@ -19,6 +19,10 @@ cmake --build --preset conan-release --target ufw_benchmarks -j
 python3 tools/bench.py mem            # rewrites the result block in ufw-mem-benchmarks.cpp
 ```
 
+`tools/bench.py` **refuses to record from a Debug or sanitized build** (those
+numbers are noise) — it reads the build dir's `CMakeCache.txt` and errors unless
+the build is optimized and non-sanitized; pass `--force` to override.
+
 Commit the updated source alongside the change. The recorded block notes the
 platform (results are machine-specific — Apple Silicon vs x86 differ; treat the
 committed numbers as the author's reference, and rely on relative deltas).

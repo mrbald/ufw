@@ -41,15 +41,31 @@ def main() -> int:
     p.add_argument("--build-dir", default="build/Release",
                    help="optimized build dir holding benchmarks/ufw_benchmarks (default build/Release)")
     p.add_argument("--min-time", default="0.2s")
+    p.add_argument("--force", action="store_true",
+                   help="record even from a Debug/sanitized build (numbers will be noise)")
     args = p.parse_args()
 
     filt, src_rel = DOMAINS[args.domain]
     src = ROOT / src_rel
-    bench = ROOT / args.build_dir / "benchmarks" / "ufw_benchmarks"
+    build = ROOT / args.build_dir
+    bench = build / "benchmarks" / "ufw_benchmarks"
     if not bench.exists():
         sys.exit(f"error: {bench} not found — build the optimized ufw_benchmarks target first")
     if not src.is_file():
         sys.exit(f"error: {src} not found")
+
+    # Refuse to record noise: benchmarks must come from an optimized, non-sanitized
+    # build (asan/-O0 numbers are meaningless). The build dir's cache is the source
+    # of truth for what it actually is.
+    cache_file = build / "CMakeCache.txt"
+    cache = cache_file.read_text() if cache_file.is_file() else ""
+    sanitized = "UFW_ENABLE_SANITIZERS:BOOL=ON" in cache
+    bt = re.search(r"^CMAKE_BUILD_TYPE:\w+=(.*)$", cache, re.M)
+    build_type = bt.group(1).strip() if bt else ""
+    if (sanitized or build_type == "Debug") and not args.force:
+        sys.exit(f"error: {args.build_dir} is not an optimized build "
+                 f"(build_type={build_type or '?'}, sanitizers={'ON' if sanitized else 'OFF'}); "
+                 f"benchmark numbers would be noise. Use a conan-release build (or --force).")
 
     proc = subprocess.run(
         [str(bench), f"--benchmark_filter={filt}", f"--benchmark_min_time={args.min_time}"],
