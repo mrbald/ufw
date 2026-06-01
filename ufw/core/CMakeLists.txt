@@ -7,6 +7,7 @@ add_library(ufw_core SHARED
     mem/memory_region.cpp
     mem/memory_region.hpp
     ring/sequencer.hpp
+    ring/slots.hpp
     ring/spsc_ring.hpp
     ring/spmc_ring.hpp
     ring/broadcast_ring.hpp)

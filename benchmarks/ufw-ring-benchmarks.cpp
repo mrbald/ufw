@@ -196,9 +196,9 @@ BENCHMARK(ring_broadcast_throughput)->UseRealTime();
 // platform: Darwin arm64 | build: build/Release | filter: ring_
 // Benchmark                                    Time             CPU   Iterations UserCounters...
 // ----------------------------------------------------------------------------------------------
-// ring_push_pop                             2.15 ns         2.15 ns    132833626 items_per_second=464.855M/s
-// ring_spsc_throughput/real_time            3.10 ns         3.10 ns    139199893 items_per_second=322.823M/s
-// ring_pingpong_latency/real_time           84.2 ns         84.2 ns      3377658 items_per_second=11.8715M/s
-// ring_spmc_throughput/real_time            69.0 ns         68.8 ns      4399847 items_per_second=14.5017M/s
-// ring_broadcast_throughput/real_time       34.9 ns         34.8 ns      8640709 items_per_second=28.6798M/s
+// ring_push_pop                             2.09 ns         2.09 ns    175682968 items_per_second=478.724M/s
+// ring_spsc_throughput/real_time            2.22 ns         2.21 ns    100000000 items_per_second=451.419M/s
+// ring_pingpong_latency/real_time           84.7 ns         84.7 ns      3242389 items_per_second=11.8072M/s
+// ring_spmc_throughput/real_time            70.5 ns         70.3 ns      4218959 items_per_second=14.1835M/s
+// ring_broadcast_throughput/real_time       32.6 ns         32.5 ns      8356390 items_per_second=30.7139M/s
 // <<<END BENCHMARK RESULTS>>>

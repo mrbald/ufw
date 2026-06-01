@@ -3,25 +3,21 @@
  * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
  *
  * Fixed-size single-producer / multi-consumer ring of trivially-copyable T:
- * N consumers compete, each record delivered to exactly one (work-sharing,
- * the Disruptor WorkerPool model). The producer and the sequencer are IDENTICAL
- * to spsc_ring — the ONLY difference is the gate (min-of-N completions instead
- * of a single cursor). That is the whole point of the gate abstraction: SPSC and
- * SPMC share their hard part.
+ * N consumers compete, each record delivered to exactly one (work-sharing, the
+ * Disruptor WorkerPool model). The producer and the sequencer are IDENTICAL to
+ * spsc_ring / broadcast_ring — only the gate (min-of-N completions) and the
+ * CAS-claim consumer are particular to work-sharing. Storage is slot_storage<T>.
  *
  * Each consumer THREAD must use a unique index in [0, consumers).
  */
 #pragma once
 
 #include "sequencer.hpp"
-
-#include <ufw/core/mem/memory_region.hpp>
+#include "slots.hpp"
 
 #include <atomic>
-#include <bit>
 #include <cstddef>
 #include <cstdint>
-#include <type_traits>
 #include <vector>
 
 namespace ufw::core {
@@ -29,28 +25,23 @@ namespace ufw::core {
 template <class T>
 class spmc_ring
 {
-    static_assert(std::is_trivially_copyable_v<T>, "spmc_ring<T> requires a trivially-copyable T");
-
 public:
     spmc_ring(std::size_t min_slots, std::size_t consumers):
-        n_slots_{std::bit_ceil(min_slots < 1 ? std::size_t{1} : min_slots)},
-        mask_{n_slots_ - 1},
-        region_{{.bytes = n_slots_ * sizeof(T)}},
-        slots_{reinterpret_cast<T*>(region_.data())},
+        storage_{min_slots},
         n_consumers_{consumers < 1 ? std::size_t{1} : consumers},
         completed_(n_consumers_),
-        producer_{producer_pos_, spmc_gate{completed_.data(), n_consumers_}, n_slots_}
+        producer_{producer_pos_, spmc_gate{completed_.data(), n_consumers_}, storage_.capacity()}
     {
     }
 
-    [[nodiscard]] std::size_t capacity() const noexcept { return n_slots_; }
+    [[nodiscard]] std::size_t capacity() const noexcept { return storage_.capacity(); }
     [[nodiscard]] std::size_t consumers() const noexcept { return n_consumers_; }
 
-    // --- producer side (one thread) --- IDENTICAL to spsc_ring (the proof).
+    // --- producer side (one thread) --- IDENTICAL to spsc_ring / broadcast_ring.
     [[nodiscard]] T* try_claim() noexcept
     {
         auto const pos = producer_.claim(1);
-        return pos ? slots_ + (*pos & mask_) : nullptr;
+        return pos ? storage_.slot(*pos) : nullptr;
     }
     void commit() noexcept { producer_.publish(); }
     bool try_push(T const& value) noexcept
@@ -86,7 +77,7 @@ public:
                 break;
             }
         }
-        out = slots_[pos & mask_];
+        out = *storage_.slot(pos);
         // Publish completion AFTER the read (release): the producer may now pass
         // this position in its min-gate and reuse the slot.
         completed_[index].value.store(pos + 1, std::memory_order_release);
@@ -94,11 +85,8 @@ public:
     }
 
 private:
-    std::size_t   n_slots_;
-    std::uint64_t mask_;
-    memory_region region_;
-    T*            slots_;
-    std::size_t   n_consumers_;
+    slot_storage<T> storage_;
+    std::size_t     n_consumers_;
     std::vector<padded_sequence> completed_; // per-consumer completion (the gate's input)
 
     alignas(cache_line) std::atomic<std::uint64_t> producer_pos_{0}; // producer -> consumers
