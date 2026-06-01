@@ -5,7 +5,8 @@ find_package(yaml-cpp REQUIRED)
 add_library(ufw_app_tests OBJECT
         ufw_topics_tests.cpp
         ufw_app_tests.cpp
-        ufw_core_tests.cpp)
+        ufw_core_tests.cpp
+        ufw_core_ring_tests.cpp)
 
 target_compile_features(ufw_app_tests PRIVATE cxx_std_23)
 target_compile_definitions(ufw_app_tests PUBLIC BOOST_TEST_DYN_LINK)

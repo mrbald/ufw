@@ -6,6 +6,7 @@ if(benchmark_FOUND)
     add_executable(ufw_benchmarks
             ufw-sandbox-benchmarks.cpp
             ufw-mem-benchmarks.cpp
+            ufw-ring-benchmarks.cpp
             main.cpp)
 
     target_compile_features(ufw_benchmarks PRIVATE cxx_std_23)
