@@ -34,7 +34,10 @@ jobs:
           python-version: '3.12'
 
       - name: install conan
-        run: pip install 'conan==2.7.*'
+        # conan-center serves recent recipes (fmt/11.2.0, quill/11.1.0, ...) only
+        # to recent clients; too old a pin gets "not found in remotes". Bump this
+        # periodically — an old pin fights conan-center, not the other way round.
+        run: pip install 'conan==2.28.*'
 
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1
