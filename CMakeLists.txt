@@ -121,6 +121,7 @@ include_directories("${PROJECT_SOURCE_DIR}" "${PROJECT_BINARY_DIR}")
 
 enable_testing()
 
+add_subdirectory(ufw/core)
 add_subdirectory(ufw/topics)
 add_subdirectory(ufw/app)
 add_subdirectory(tests)
