@@ -31,7 +31,7 @@ cmake --build --preset conan-debug -j
 
 Custom targets:
 - `cmake --build --preset conan-debug --target unit-test` — Boost.Test suite (`tests/`).
-- `cmake --build --preset conan-debug --target benchmark` — Google Benchmark suite (`benchmarks/`).
+- `cmake --build --preset conan-debug --target benchmark` — Google Benchmark suite (`benchmarks/`). Record numbers with `tools/bench.py <domain>` from an optimized (`conan-release`) build: it rewrites a delimited results block at the bottom of `benchmarks/ufw-<domain>-benchmarks.cpp` so the perf delta travels with the code in `git diff` (see `benchmarks/README.md`).
 - `cmake --build --preset conan-debug --target tidy` (or `tidy-fix`) — runs `tools/lint.py`, the clang-tidy harness. Unlike the per-target `CXX_CLANG_TIDY` integration, it also lints every first-party header **as a standalone TU**, so findings in template-only headers (e.g. `entity_ref<T>`, never instantiated by a `.cpp`) are caught. `--json` emits a machine-readable summary; `--export-fixes <dir>` dumps clang-tidy's raw YAML. Needs `clang-tidy` on `PATH` (brew llvm is keg-only).
 - `cmake --install build/Debug --prefix <path>` — installs libs/headers/binaries plus `UfwConfig.cmake` / `UfwTargets.cmake` for downstream consumers (`find_package(Ufw)` → `ufw::ufw_app`, `ufw::ufw_topics`, etc.).
 

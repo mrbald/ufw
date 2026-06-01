@@ -5,6 +5,7 @@ if(benchmark_FOUND)
 
     add_executable(ufw_benchmarks
             ufw-sandbox-benchmarks.cpp
+            ufw-mem-benchmarks.cpp
             main.cpp)
 
     target_compile_features(ufw_benchmarks PRIVATE cxx_std_23)
@@ -12,6 +13,7 @@ if(benchmark_FOUND)
     target_link_libraries(ufw_benchmarks
         PRIVATE
             benchmark::benchmark
+            ufw_core
             ufw::warnings
             ufw::sanitizers)
 
