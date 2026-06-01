@@ -3,6 +3,7 @@
 #include "application.hpp"
 #include "plugin.hpp"
 
+#include <boost/asio/post.hpp>
 #include <boost/asio/steady_timer.hpp>
 
 namespace {
@@ -23,7 +24,7 @@ struct example: ufw::entity, ufw::lifecycle_participant {
     void start() override /* from lifecycle_participant */
     {
         LOG_INF("started");
-        app().context().post([this]{
+        boost::asio::post(app().context(), [this]{
             LOG_INF("scheduling shutdown in 5 seconds");
             timer_.expires_after(std::chrono::seconds(5));
             timer_.async_wait([this](auto&&){

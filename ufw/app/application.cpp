@@ -157,7 +157,8 @@ void application::run()
     schedule_up();
     start_participants();
 
-    work_ = std::make_unique<boost::asio::io_context::work>(context_);
+    work_ = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
+        context_.get_executor());
     context_.run();
 
     // init/start ran in declaration order; stop/fini run in reverse.
@@ -194,9 +195,9 @@ void application::schedule_up()
     LOG_INF("scheduling lifecycle participants ping");
     for (lifecycle_participant& x: lifecycle_participants_)
     {
-        context_.post([&x]{ x.up(); }); // TODO: VL: ping participants via their inboxes (once inboxes are implemented)
+        boost::asio::post(context_, [&x]{ x.up(); }); // TODO: VL: ping participants via their inboxes (once inboxes are implemented)
     }
-    context_.post([this]{ LOG_INF("UP"); });
+    boost::asio::post(context_, [this]{ LOG_INF("UP"); });
 }
 
 void application::start_participants()
@@ -231,7 +232,7 @@ void application::fini_participants()
 
 void application::shutdown()
 {
-    work_.reset();
+    work_ = nullptr; // destroy the work guard so io_context::run() can return
     context_.stop();
 }
 

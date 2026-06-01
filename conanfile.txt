@@ -1,9 +1,9 @@
 [requires]
-benchmark/1.8.4
-fmt/11.2.0
+benchmark/1.9.5
+fmt/12.1.0
 quill/11.1.0
-boost/1.86.0
-yaml-cpp/0.8.0
+boost/1.91.0
+yaml-cpp/0.9.0
 
 [generators]
 CMakeDeps
@@ -11,6 +11,9 @@ CMakeToolchain
 
 [options]
 boost/*:shared=True
+# Boost.Cobalt is unused here and its cobalt_io_ssl component fails to build
+# (expects OpenSSL); disable the whole library.
+boost/*:without_cobalt=True
 
 [layout]
 cmake_layout

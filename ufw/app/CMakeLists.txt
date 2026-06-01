@@ -1,5 +1,5 @@
 find_package(Threads REQUIRED)
-find_package(Boost REQUIRED COMPONENTS headers system program_options)
+find_package(Boost REQUIRED COMPONENTS headers program_options)
 find_package(yaml-cpp REQUIRED)
 find_package(quill REQUIRED)
 find_package(fmt REQUIRED)
@@ -33,7 +33,6 @@ target_link_libraries(ufw_app
         yaml-cpp::yaml-cpp
         Boost::headers
         Boost::program_options
-        Boost::system
         quill::quill
         fmt::fmt
     PRIVATE

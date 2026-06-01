@@ -28,6 +28,8 @@
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
+#include <boost/asio/executor_work_guard.hpp>
+#include <boost/asio/post.hpp>
 
 #include <string>
 #include <vector>
@@ -152,7 +154,7 @@ private:
 
     boost::asio::io_context context_;
     boost::asio::signal_set terminal_signals_ {context_, SIGINT/*, SIGTERM*/};
-    std::unique_ptr<boost::asio::io_context::work> work_;
+    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work_;
 
     std::vector<std::unique_ptr<entity>> entities_;
     std::map<entity_id, size_t> entity_ids_;
