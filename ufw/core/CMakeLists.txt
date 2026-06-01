@@ -7,7 +7,8 @@ add_library(ufw_core SHARED
     mem/memory_region.cpp
     mem/memory_region.hpp
     ring/sequencer.hpp
-    ring/spsc_ring.hpp)
+    ring/spsc_ring.hpp
+    ring/spmc_ring.hpp)
 
 target_compile_features(ufw_core PUBLIC cxx_std_23)
 

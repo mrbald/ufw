@@ -10,9 +10,11 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 
 namespace ufw::core {
@@ -47,6 +49,37 @@ private:
     std::atomic<std::uint64_t> const* completed_;
 };
 
+// A completion sequence isolated on its own cache line, so competing consumers
+// publishing their progress don't false-share with each other.
+struct alignas(cache_line) padded_sequence
+{
+    std::atomic<std::uint64_t> value{0};
+};
+
+// SPMC completion floor: the minimum over N per-consumer completion sequences.
+// This is the entire SPSC->SPMC difference — the producer is unchanged; it just
+// reads this gate instead of the single-cursor one.
+class spmc_gate
+{
+public:
+    spmc_gate(padded_sequence const* completed, std::size_t count) noexcept:
+        completed_{completed}, count_{count} {}
+
+    [[nodiscard]] std::uint64_t position() const noexcept
+    {
+        std::uint64_t floor = std::numeric_limits<std::uint64_t>::max();
+        for (std::size_t i = 0; i < count_; ++i)
+        {
+            floor = std::min(floor, completed_[i].value.load(std::memory_order_acquire));
+        }
+        return floor;
+    }
+
+private:
+    padded_sequence const* completed_;
+    std::size_t count_;
+};
+
 // Single-producer claim/publish over absolute monotonic positions. Reads free
 // space through an abstract gate (the completion floor), caching it and only
 // refreshing on apparent back-pressure (the standard cached-cursor optimization).
@@ -78,7 +111,9 @@ public:
     }
 
     // Publish all claims so far (release): consumers may now read up to here.
-    void publish() noexcept
+    // const because it only reflects the producer's claim position to the cursor;
+    // it does not change the producer's own state.
+    void publish() const noexcept
     {
         cursor_->store(claim_next_, std::memory_order_release);
     }
