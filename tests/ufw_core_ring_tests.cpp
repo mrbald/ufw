@@ -6,6 +6,7 @@
  */
 #include <boost/test/unit_test.hpp>
 
+#include <ufw/core/ring/broadcast_ring.hpp>
 #include <ufw/core/ring/spmc_ring.hpp>
 #include <ufw/core/ring/spsc_ring.hpp>
 
@@ -13,11 +14,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
 namespace {
 
+using ufw::core::broadcast_ring;
 using ufw::core::spmc_ring;
 using ufw::core::spsc_ring;
 
@@ -242,5 +245,135 @@ BOOST_AUTO_TEST_CASE(every_record_is_consumed_exactly_once)
 }
 
 BOOST_AUTO_TEST_SUITE_END(/* ufw_core_spmc_ring */)
+
+BOOST_AUTO_TEST_SUITE(ufw_core_broadcast_ring)
+
+BOOST_AUTO_TEST_CASE(reports_capacity_and_subscriber_count)
+{
+    broadcast_ring<int> ring{5, 3};
+    BOOST_TEST(ring.capacity() == 8u);
+    BOOST_TEST(ring.subscribers() == 3u);
+}
+
+BOOST_AUTO_TEST_CASE(single_subscriber_sees_all_in_order)
+{
+    broadcast_ring<int> ring{8, 1};
+    auto sub = ring.subscribe();
+    for (int i = 0; i < 6; ++i)
+    {
+        BOOST_REQUIRE(ring.try_push(i));
+    }
+    for (int i = 0; i < 6; ++i)
+    {
+        int v = -1;
+        BOOST_REQUIRE(sub.try_pop(v));
+        BOOST_REQUIRE_EQUAL(v, i);
+    }
+    int v = -1;
+    BOOST_REQUIRE(!sub.try_pop(v));
+}
+
+// The defining broadcast property: every subscriber independently sees the whole
+// stream, in order.
+BOOST_AUTO_TEST_CASE(every_subscriber_sees_every_record)
+{
+    broadcast_ring<int> ring{8, 2};
+    auto a = ring.subscribe();
+    auto b = ring.subscribe();
+    for (int i = 0; i < 6; ++i)
+    {
+        BOOST_REQUIRE(ring.try_push(i));
+    }
+    for (int i = 0; i < 6; ++i)
+    {
+        int va = -1;
+        int vb = -1;
+        BOOST_REQUIRE(a.try_pop(va));
+        BOOST_REQUIRE(b.try_pop(vb));
+        BOOST_REQUIRE_EQUAL(va, i);
+        BOOST_REQUIRE_EQUAL(vb, i);
+    }
+}
+
+// Loss-free: a slot is not reused until the SLOWEST subscriber has read it.
+BOOST_AUTO_TEST_CASE(producer_is_gated_by_the_slowest_subscriber)
+{
+    broadcast_ring<int> ring{4, 2};
+    auto a = ring.subscribe();
+    auto b = ring.subscribe();
+    for (int i = 0; i < 4; ++i)
+    {
+        BOOST_REQUIRE(ring.try_push(i)); // fill capacity
+    }
+    BOOST_REQUIRE(!ring.try_push(99));   // full: gate = min(0, 0)
+
+    int v = -1;
+    for (int i = 0; i < 4; ++i)
+    {
+        BOOST_REQUIRE(a.try_pop(v)); // a races ahead and drains everything
+        BOOST_REQUIRE_EQUAL(v, i);
+    }
+    BOOST_REQUIRE(!ring.try_push(99));   // STILL full: gated by b, still at 0
+
+    BOOST_REQUIRE(b.try_pop(v));          // b reads exactly one
+    BOOST_REQUIRE_EQUAL(v, 0);
+    BOOST_REQUIRE(ring.try_push(99));     // one slot freed (gate = min(4, 1) = 1)
+}
+
+BOOST_AUTO_TEST_CASE(subscribing_past_the_reserved_count_throws)
+{
+    broadcast_ring<int> ring{4, 1};
+    [[maybe_unused]] auto const sub = ring.subscribe(); // claims the one reserved slot
+    BOOST_CHECK_THROW((void)ring.subscribe(), std::out_of_range);
+}
+
+// One producer, N subscriber threads each reading the ENTIRE stream in order,
+// under constant wrap + slowest-subscriber back-pressure. The real fan-out
+// ordering/visibility test.
+BOOST_AUTO_TEST_CASE(concurrent_broadcast_every_subscriber_sees_full_stream)
+{
+    constexpr std::uint64_t count = 1U << 16;
+    constexpr std::size_t subs = 4;
+    broadcast_ring<std::uint64_t> ring{1024, subs};
+
+    std::atomic<int> failures{0};
+    std::vector<std::thread> readers;
+    for (std::size_t s = 0; s < subs; ++s)
+    {
+        readers.emplace_back([&ring, &failures]
+        {
+            auto sub = ring.subscribe();
+            std::uint64_t value = 0;
+            for (std::uint64_t expected = 0; expected < count;)
+            {
+                if (sub.try_pop(value))
+                {
+                    if (value != expected)
+                    {
+                        failures.fetch_add(1, std::memory_order_relaxed);
+                        return;
+                    }
+                    ++expected;
+                }
+            }
+        });
+    }
+
+    for (std::uint64_t i = 0; i < count;)
+    {
+        if (ring.try_push(i))
+        {
+            ++i;
+        }
+    }
+
+    for (auto& t : readers)
+    {
+        t.join();
+    }
+    BOOST_TEST(failures.load() == 0);
+}
+
+BOOST_AUTO_TEST_SUITE_END(/* ufw_core_broadcast_ring */)
 
 } // namespace

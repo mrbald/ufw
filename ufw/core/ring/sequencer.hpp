@@ -56,9 +56,12 @@ struct alignas(cache_line) padded_sequence
     std::atomic<std::uint64_t> value{0};
 };
 
-// SPMC completion floor: the minimum over N per-consumer completion sequences.
-// This is the entire SPSC->SPMC difference — the producer is unchanged; it just
-// reads this gate instead of the single-cursor one.
+// The min over N per-consumer cursors — the "everyone is at least here" floor.
+// This single gate serves both multi-consumer rings unchanged: for spmc_ring the
+// cursors are work COMPLETION positions (each record done by one consumer); for
+// broadcast_ring they are READ positions (each subscriber reads every record).
+// The producer is identical in all three rings; it just reads this gate instead
+// of the single-cursor spsc_gate.
 class spmc_gate
 {
 public:
