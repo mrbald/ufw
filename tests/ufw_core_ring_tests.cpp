@@ -10,6 +10,7 @@
  */
 #include <boost/test/unit_test.hpp>
 
+#include <ufw/core/ring/multicast_buffer.hpp>
 #include <ufw/core/ring/multicast_ring.hpp>
 #include <ufw/core/ring/spsc_ring.hpp>
 
@@ -22,7 +23,9 @@
 
 namespace {
 
+using ufw::core::multicast_buffer;
 using ufw::core::multicast_ring;
+using ufw::core::read_status;
 using ufw::core::spsc_ring;
 
 BOOST_AUTO_TEST_SUITE(ufw_core_spsc_ring)
@@ -295,5 +298,124 @@ BOOST_AUTO_TEST_CASE(concurrent_multicast_every_subscriber_sees_full_stream)
 }
 
 BOOST_AUTO_TEST_SUITE_END(/* ufw_core_multicast_ring */)
+
+BOOST_AUTO_TEST_SUITE(ufw_core_multicast_buffer)
+
+BOOST_AUTO_TEST_CASE(reader_in_step_sees_every_record)
+{
+    multicast_buffer<int> buf{8};
+    auto r = buf.subscribe();
+    int out = 0;
+    std::uint64_t skipped = 0;
+    BOOST_REQUIRE(r.try_read(out, skipped) == read_status::empty); // nothing produced yet
+    for (int i = 1; i <= 6; ++i)
+    {
+        buf.push(i * 100); // value at position i is i*100
+    }
+    for (int i = 1; i <= 6; ++i)
+    {
+        BOOST_REQUIRE(r.try_read(out, skipped) == read_status::ok);
+        BOOST_REQUIRE_EQUAL(out, i * 100);
+    }
+    BOOST_REQUIRE(r.try_read(out, skipped) == read_status::empty); // caught up
+}
+
+BOOST_AUTO_TEST_CASE(independent_readers_each_see_the_stream)
+{
+    multicast_buffer<int> buf{8};
+    auto a = buf.subscribe();
+    auto b = buf.subscribe();
+    for (int i = 1; i <= 5; ++i)
+    {
+        buf.push(i);
+    }
+    int va = 0;
+    int vb = 0;
+    std::uint64_t sk = 0;
+    for (int i = 1; i <= 5; ++i)
+    {
+        BOOST_REQUIRE(a.try_read(va, sk) == read_status::ok);
+        BOOST_REQUIRE(b.try_read(vb, sk) == read_status::ok);
+        BOOST_REQUIRE_EQUAL(va, i);
+        BOOST_REQUIRE_EQUAL(vb, i);
+    }
+}
+
+// Value at position p is p. Fill the buffer (positions 1..4), then push one more
+// (position 5) which overwrites position 1's slot. A reader still at position 1 must
+// detect the lap, resync to the oldest still-readable (2), report exactly 1 skipped,
+// then read 2..5 cleanly.
+BOOST_AUTO_TEST_CASE(lapped_reader_resyncs_to_oldest_and_reports_the_gap)
+{
+    multicast_buffer<std::uint64_t> buf{4};
+    BOOST_REQUIRE_EQUAL(buf.capacity(), 4u);
+    auto r = buf.subscribe();
+    for (std::uint64_t p = 1; p <= 4; ++p)
+    {
+        buf.push(p);
+    }
+    buf.push(5); // laps the slot holding position 1
+
+    std::uint64_t out = 0;
+    std::uint64_t skipped = 0;
+    BOOST_REQUIRE(r.try_read(out, skipped) == read_status::lapped);
+    BOOST_REQUIRE_EQUAL(skipped, 1u);          // only position 1 was lost
+    BOOST_REQUIRE_EQUAL(r.position(), 2u);     // resynced to the oldest still in the buffer
+    for (std::uint64_t expected = 2; expected <= 5; ++expected)
+    {
+        BOOST_REQUIRE(r.try_read(out, skipped) == read_status::ok);
+        BOOST_REQUIRE_EQUAL(out, expected);
+    }
+    BOOST_REQUIRE(r.try_read(out, skipped) == read_status::empty);
+}
+
+// The real test: a producer overwrites freely (never waiting) while a reader drains.
+// Value at position p is p, so every ok read MUST return its own position (no torn
+// read slips past the seqlock), and every position is accounted for exactly once —
+// read or skipped (read + skipped == produced).
+BOOST_AUTO_TEST_CASE(concurrent_lossy_no_torn_reads_and_full_coverage)
+{
+    constexpr std::uint64_t count = 1U << 18;
+    multicast_buffer<std::uint64_t> buf{1024};
+    auto r = buf.subscribe();
+
+    std::thread producer([&buf]
+    {
+        for (std::uint64_t p = 1; p <= count; ++p)
+        {
+            buf.push(p);
+        }
+    });
+
+    std::uint64_t read_count = 0;
+    std::uint64_t skipped_total = 0;
+    std::uint64_t out = 0;
+    std::uint64_t skipped = 0;
+    while (r.position() <= count)
+    {
+        std::uint64_t const before = r.position();
+        read_status const st = r.try_read(out, skipped);
+        if (st == read_status::ok)
+        {
+            if (out != before)
+            {
+                BOOST_FAIL("torn read: got " << out << " at position " << before);
+            }
+            ++read_count;
+        }
+        else if (st == read_status::lapped)
+        {
+            skipped_total += skipped;
+        }
+        else
+        {
+            std::this_thread::yield();
+        }
+    }
+    producer.join();
+    BOOST_TEST(read_count + skipped_total == count); // every record read or skipped, once
+}
+
+BOOST_AUTO_TEST_SUITE_END(/* ufw_core_multicast_buffer */)
 
 } // namespace
