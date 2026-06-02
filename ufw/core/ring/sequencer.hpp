@@ -4,9 +4,9 @@
  *
  * The shared, correctness-critical core of every ring: the producer's claim/
  * publish over absolute monotonic positions, and the "gate" through which it
- * sees the consumer side. SPSC uses a single-cursor gate; SPMC later swaps in a
- * min-of-N-completions gate with ZERO change to the producer (the verified
- * Disruptor WorkerPool factoring).
+ * sees the consumer side. SPSC uses a single-cursor gate; multicast swaps in a
+ * min-of-N-cursors gate (min over the subscriber read positions) with ZERO change
+ * to the producer — only the gate differs.
  */
 #pragma once
 
@@ -32,8 +32,8 @@ inline constexpr std::size_t cache_line = 64;  // x86-64
 // The producer's only view of the consumer side: the completion floor — the
 // smallest position still needed by any consumer. Positions below it are free to
 // overwrite. The producer treats this as an opaque scalar; how it is computed
-// (one cursor for SPSC, a min over N for SPMC) is the only thing that differs
-// between ring flavours.
+// (one cursor for SPSC, a min over the N subscribers for multicast) is the only
+// thing that differs between ring flavours.
 class spsc_gate
 {
 public:
@@ -56,16 +56,19 @@ struct alignas(cache_line) padded_sequence
     std::atomic<std::uint64_t> value{0};
 };
 
-// The min over N per-consumer cursors — the "everyone is at least here" floor.
-// This single gate serves both multi-consumer rings unchanged: for spmc_ring the
-// cursors are work COMPLETION positions (each record done by one consumer); for
-// broadcast_ring they are READ positions (each subscriber reads every record).
-// The producer is identical in all three rings; it just reads this gate instead
-// of the single-cursor spsc_gate.
-class spmc_gate
+// The min over N subscriber cursors — the "everyone is at least here" floor: the
+// multicast producer is gated by the SLOWEST subscriber. Each subscriber walks the
+// whole stream through its OWN sequential cursor, so the min is a correct "all
+// positions below are read by everyone" watermark, and the producer is identical
+// to spsc_ring — it just reads this gate instead of the single-cursor spsc_gate.
+//
+// NB: a min-of-cursors gate is correct ONLY for sequential per-reader cursors.
+// Work-sharing (competing consumers with sparse claims) needs per-slot turn
+// sequencing instead — which is why that discipline is not built on this gate.
+class multicast_gate
 {
 public:
-    spmc_gate(padded_sequence const* completed, std::size_t count) noexcept:
+    multicast_gate(padded_sequence const* completed, std::size_t count) noexcept:
         completed_{completed}, count_{count} {}
 
     [[nodiscard]] std::uint64_t position() const noexcept

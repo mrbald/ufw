@@ -2,26 +2,27 @@
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
  * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
  *
- * Stage 1B-i: fixed-size SPSC ring<T>. Tests are the executable spec.
+ * Stage 1B: fixed-size SPSC ring<T> and multicast (pub/sub fan-out) ring<T>.
+ * Tests are the executable spec. The concurrent tests pick a yield wait-policy on
+ * a failed try_* (back-pressure is a signal; the wait is the caller's) so they make
+ * progress under thread oversubscription (e.g. a 2-core CI runner) instead of a
+ * non-yielding busy-spin starving the threads that can.
  */
 #include <boost/test/unit_test.hpp>
 
-#include <ufw/core/ring/broadcast_ring.hpp>
-#include <ufw/core/ring/spmc_ring.hpp>
+#include <ufw/core/ring/multicast_ring.hpp>
 #include <ufw/core/ring/spsc_ring.hpp>
 
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <memory>
 #include <stdexcept>
 #include <thread>
 #include <vector>
 
 namespace {
 
-using ufw::core::broadcast_ring;
-using ufw::core::spmc_ring;
+using ufw::core::multicast_ring;
 using ufw::core::spsc_ring;
 
 BOOST_AUTO_TEST_SUITE(ufw_core_spsc_ring)
@@ -127,6 +128,10 @@ BOOST_AUTO_TEST_CASE(concurrent_spsc_preserves_order_and_values)
             {
                 ++i;
             }
+            else
+            {
+                std::this_thread::yield();
+            }
         }
     });
 
@@ -142,6 +147,10 @@ BOOST_AUTO_TEST_CASE(concurrent_spsc_preserves_order_and_values)
             }
             ++expected;
         }
+        else
+        {
+            std::this_thread::yield();
+        }
     }
     producer.join();
     BOOST_TEST(expected == count);
@@ -149,115 +158,18 @@ BOOST_AUTO_TEST_CASE(concurrent_spsc_preserves_order_and_values)
 
 BOOST_AUTO_TEST_SUITE_END(/* ufw_core_spsc_ring */)
 
-BOOST_AUTO_TEST_SUITE(ufw_core_spmc_ring)
-
-BOOST_AUTO_TEST_CASE(reports_capacity_and_consumer_count)
-{
-    spmc_ring<int> ring{5, 3};
-    BOOST_TEST(ring.capacity() == 8u);
-    BOOST_TEST(ring.consumers() == 3u);
-}
-
-BOOST_AUTO_TEST_CASE(single_consumer_is_fifo)
-{
-    spmc_ring<int> ring{8, 1};
-    for (int i = 0; i < 6; ++i)
-    {
-        BOOST_REQUIRE(ring.try_push(i));
-    }
-    for (int i = 0; i < 6; ++i)
-    {
-        int v = -1;
-        BOOST_REQUIRE(ring.try_consume(0, v));
-        BOOST_REQUIRE_EQUAL(v, i);
-    }
-    int v = -1;
-    BOOST_REQUIRE(!ring.try_consume(0, v)); // drained
-}
-
-// With one consumer the gate is a single sequence, so back-pressure is
-// deterministic (with N>1 the producer is gated by the slowest consumer).
-BOOST_AUTO_TEST_CASE(single_consumer_back_pressure_is_deterministic)
-{
-    spmc_ring<int> ring{4, 1};
-    for (int i = 0; i < 4; ++i)
-    {
-        BOOST_REQUIRE(ring.try_push(i));
-    }
-    BOOST_REQUIRE(!ring.try_push(99)); // full
-    int v = -1;
-    BOOST_REQUIRE(ring.try_consume(0, v)); // free exactly one
-    BOOST_REQUIRE_EQUAL(v, 0);
-    BOOST_REQUIRE(ring.try_push(99));
-    BOOST_REQUIRE(!ring.try_push(100));
-}
-
-// The work-sharing invariant: one producer, N competing consumers, every record
-// is delivered to exactly one consumer — no loss, no duplication — under heavy
-// wrap and back-pressure. Also the real multi-consumer ordering/visibility test.
-BOOST_AUTO_TEST_CASE(every_record_is_consumed_exactly_once)
-{
-    constexpr std::uint64_t count = 1U << 16;
-    constexpr std::size_t consumers = 4;
-    spmc_ring<std::uint64_t> ring{1024, consumers};
-
-    auto seen = std::make_unique<std::atomic<int>[]>(count); // zero-initialized
-    std::atomic<std::uint64_t> consumed{0};
-
-    std::vector<std::thread> pool;
-    for (std::size_t i = 0; i < consumers; ++i)
-    {
-        pool.emplace_back([&ring, &seen, &consumed, i]
-        {
-            std::uint64_t value = 0;
-            while (consumed.load(std::memory_order_relaxed) < count)
-            {
-                if (ring.try_consume(i, value))
-                {
-                    seen[value].fetch_add(1, std::memory_order_relaxed);
-                    consumed.fetch_add(1, std::memory_order_relaxed);
-                }
-            }
-        });
-    }
-
-    for (std::uint64_t i = 0; i < count;)
-    {
-        if (ring.try_push(i))
-        {
-            ++i;
-        }
-    }
-
-    for (auto& t : pool)
-    {
-        t.join();
-    }
-
-    BOOST_TEST(consumed.load() == count);
-    for (std::uint64_t v = 0; v < count; ++v)
-    {
-        if (seen[v].load() != 1)
-        {
-            BOOST_FAIL("value " << v << " consumed " << seen[v].load() << " times (expected 1)");
-        }
-    }
-}
-
-BOOST_AUTO_TEST_SUITE_END(/* ufw_core_spmc_ring */)
-
-BOOST_AUTO_TEST_SUITE(ufw_core_broadcast_ring)
+BOOST_AUTO_TEST_SUITE(ufw_core_multicast_ring)
 
 BOOST_AUTO_TEST_CASE(reports_capacity_and_subscriber_count)
 {
-    broadcast_ring<int> ring{5, 3};
+    multicast_ring<int> ring{5, 3};
     BOOST_TEST(ring.capacity() == 8u);
     BOOST_TEST(ring.subscribers() == 3u);
 }
 
 BOOST_AUTO_TEST_CASE(single_subscriber_sees_all_in_order)
 {
-    broadcast_ring<int> ring{8, 1};
+    multicast_ring<int> ring{8, 1};
     auto sub = ring.subscribe();
     for (int i = 0; i < 6; ++i)
     {
@@ -273,11 +185,11 @@ BOOST_AUTO_TEST_CASE(single_subscriber_sees_all_in_order)
     BOOST_REQUIRE(!sub.try_pop(v));
 }
 
-// The defining broadcast property: every subscriber independently sees the whole
+// The defining multicast property: every subscriber independently sees the whole
 // stream, in order.
 BOOST_AUTO_TEST_CASE(every_subscriber_sees_every_record)
 {
-    broadcast_ring<int> ring{8, 2};
+    multicast_ring<int> ring{8, 2};
     auto a = ring.subscribe();
     auto b = ring.subscribe();
     for (int i = 0; i < 6; ++i)
@@ -298,7 +210,7 @@ BOOST_AUTO_TEST_CASE(every_subscriber_sees_every_record)
 // Loss-free: a slot is not reused until the SLOWEST subscriber has read it.
 BOOST_AUTO_TEST_CASE(producer_is_gated_by_the_slowest_subscriber)
 {
-    broadcast_ring<int> ring{4, 2};
+    multicast_ring<int> ring{4, 2};
     auto a = ring.subscribe();
     auto b = ring.subscribe();
     for (int i = 0; i < 4; ++i)
@@ -322,7 +234,7 @@ BOOST_AUTO_TEST_CASE(producer_is_gated_by_the_slowest_subscriber)
 
 BOOST_AUTO_TEST_CASE(subscribing_past_the_reserved_count_throws)
 {
-    broadcast_ring<int> ring{4, 1};
+    multicast_ring<int> ring{4, 1};
     [[maybe_unused]] auto const sub = ring.subscribe(); // claims the one reserved slot
     BOOST_CHECK_THROW((void)ring.subscribe(), std::out_of_range);
 }
@@ -330,11 +242,11 @@ BOOST_AUTO_TEST_CASE(subscribing_past_the_reserved_count_throws)
 // One producer, N subscriber threads each reading the ENTIRE stream in order,
 // under constant wrap + slowest-subscriber back-pressure. The real fan-out
 // ordering/visibility test.
-BOOST_AUTO_TEST_CASE(concurrent_broadcast_every_subscriber_sees_full_stream)
+BOOST_AUTO_TEST_CASE(concurrent_multicast_every_subscriber_sees_full_stream)
 {
     constexpr std::uint64_t count = 1U << 16;
     constexpr std::size_t subs = 4;
-    broadcast_ring<std::uint64_t> ring{1024, subs};
+    multicast_ring<std::uint64_t> ring{1024, subs};
 
     std::atomic<int> failures{0};
     std::vector<std::thread> readers;
@@ -355,6 +267,10 @@ BOOST_AUTO_TEST_CASE(concurrent_broadcast_every_subscriber_sees_full_stream)
                     }
                     ++expected;
                 }
+                else
+                {
+                    std::this_thread::yield();
+                }
             }
         });
     }
@@ -365,6 +281,10 @@ BOOST_AUTO_TEST_CASE(concurrent_broadcast_every_subscriber_sees_full_stream)
         {
             ++i;
         }
+        else
+        {
+            std::this_thread::yield();
+        }
     }
 
     for (auto& t : readers)
@@ -374,6 +294,6 @@ BOOST_AUTO_TEST_CASE(concurrent_broadcast_every_subscriber_sees_full_stream)
     BOOST_TEST(failures.load() == 0);
 }
 
-BOOST_AUTO_TEST_SUITE_END(/* ufw_core_broadcast_ring */)
+BOOST_AUTO_TEST_SUITE_END(/* ufw_core_multicast_ring */)
 
 } // namespace

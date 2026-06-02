@@ -9,8 +9,7 @@ add_library(ufw_core SHARED
     ring/sequencer.hpp
     ring/slots.hpp
     ring/spsc_ring.hpp
-    ring/spmc_ring.hpp
-    ring/broadcast_ring.hpp)
+    ring/multicast_ring.hpp)
 
 target_compile_features(ufw_core PUBLIC cxx_std_23)
 

@@ -39,6 +39,12 @@ public:
     [[nodiscard]] T*       slot(std::uint64_t pos) noexcept       { return slots_ + (pos & mask_); }
     [[nodiscard]] T const* slot(std::uint64_t pos) const noexcept { return slots_ + (pos & mask_); }
 
+    // Raw base + mask for an independent reader<T>: both are immutable after
+    // construction, so the reader caches them and skips chasing a slot_storage
+    // pointer (and reloading the mask) on its hot path.
+    [[nodiscard]] T const* data() const noexcept { return slots_; }
+    [[nodiscard]] std::uint64_t mask() const noexcept { return mask_; }
+
 private:
     std::size_t   n_slots_;
     std::uint64_t mask_;
@@ -47,10 +53,12 @@ private:
 };
 
 // An independent sequential reader over a published log: sees every record in
-// order, at its own pace, caching the producer cursor and publishing its own
-// read position (which feeds a gate). This is both the SPSC consumer and each
-// broadcast subscriber — the single most ordering-sensitive piece, so it lives
-// in exactly one place. Move-only: copying would alias a cursor.
+// order, at its own pace, caching the producer cursor and publishing its own read
+// position (which feeds the multicast gate). Each multicast subscriber is one of
+// these. (SPSC keeps an inline copy of this same logic on direct members — a
+// detached reader's pointer indirection costs it ~2x on the hottest path; here the
+// subscribers are genuinely separate objects, and caching slots_+mask_ keeps the
+// read cheap.) Move-only: copying would alias a cursor.
 template <class T>
 class reader
 {
@@ -58,7 +66,8 @@ public:
     reader(slot_storage<T> const& storage,
            std::atomic<std::uint64_t> const& producer_pos,
            std::atomic<std::uint64_t>& cursor) noexcept:
-        storage_{&storage}, producer_pos_{&producer_pos}, cursor_{&cursor}
+        slots_{storage.data()}, mask_{storage.mask()},
+        producer_pos_{&producer_pos}, cursor_{&cursor}
     {
     }
 
@@ -81,7 +90,7 @@ public:
                 return nullptr;
             }
         }
-        return storage_->slot(read_pos_);
+        return slots_ + (read_pos_ & mask_);
     }
 
     // Advance past the peeked record and publish progress (release: orders this
@@ -105,7 +114,8 @@ public:
     }
 
 private:
-    slot_storage<T> const*            storage_;
+    T const*      slots_; // cached storage base (immutable after construction)
+    std::uint64_t mask_;  // cached capacity-1 (immutable after construction)
     std::atomic<std::uint64_t> const* producer_pos_; // producer's published position
     std::atomic<std::uint64_t>*       cursor_;        // this reader's published read position (gate input)
     std::uint64_t read_pos_ = 0;
