@@ -10,10 +10,11 @@ CMakeDeps
 CMakeToolchain
 
 [options]
-boost/*:shared=True
-# Boost.Cobalt is unused here and its cobalt_io_ssl component fails to build
-# (expects OpenSSL); disable the whole library.
-boost/*:without_cobalt=True
+# We link no compiled boost component: asio and exception are header-only, the CLI
+# is hand-rolled (no program_options), and Boost.Test uses its header-only 'included'
+# variant. header_only=True ships only headers — no boost .so to put on the loader
+# path, and conan stops building boost from source (much faster CI).
+boost/*:header_only=True
 
 [layout]
 cmake_layout

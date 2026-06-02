@@ -23,7 +23,6 @@
 #include "lifecycle_participant.hpp"
 #include "loader.hpp"
 
-#include <boost/program_options.hpp>
 #include <boost/core/demangle.hpp>
 
 #include <boost/asio/io_context.hpp>

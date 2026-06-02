@@ -15,4 +15,7 @@
 */
 
 #define BOOST_TEST_MODULE "ufw"
-#include <boost/test/unit_test.hpp>
+// Header-only Boost.Test: the 'included' variant compiles the framework into this
+// one TU, so we link no compiled boost component. Other test TUs include the plain
+// <boost/test/unit_test.hpp> and resolve against the symbols defined here.
+#include <boost/test/included/unit_test.hpp>

@@ -4,7 +4,6 @@
 #include "configuration.hpp"
 #include "logger.hpp"
 
-#include <boost/program_options.hpp>
 #include <boost/core/demangle.hpp>
 
 #include <boost/asio/io_context.hpp>
@@ -12,6 +11,7 @@
 
 #include <algorithm>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <iostream>
 #include <fstream>
@@ -119,25 +119,41 @@ entity& application::get(resolved_entity_id rid) const
 
 void application::load(int argc, char const** argv)
 {
-    namespace po = boost::program_options;
-
+    // Hand-rolled CLI for the two flags we support, so no compiled boost component
+    // (program_options) is needed — the rest of our boost use (asio, exception) is
+    // header-only. Mirrors the previous behaviour: -c/--config <file> (default
+    // config.yaml), -h/--help prints usage and bails.
     std::string config_file = "config.yaml";
-    po::options_description desc {"Options"};
-    desc.add_options()
-        ("help,h", "Print this help message")
-        ("config,c", po::value<std::string>(&config_file)->default_value(config_file), "application config file")
-    ;
 
-    po::variables_map vm;
-    po::store(po::parse_command_line(argc, argv, desc), vm);
-
-    if (vm.contains("help"))
+    static constexpr std::string_view config_eq{"--config="};
+    for (int i = 1; i < argc; ++i)
     {
-        std::cout << desc << '\n';
-        throw fatal_error("help displayed, bye");
+        std::string_view const arg{argv[i]};
+        if (arg == "-h" || arg == "--help")
+        {
+            std::cout << "Usage: " << (argc > 0 ? argv[0] : "ufw_launcher")
+                      << " [-c|--config <file>] [-h|--help]\n"
+                         "  -c, --config <file>  application config file (default: config.yaml)\n"
+                         "  -h, --help           print this help message\n";
+            throw fatal_error("help displayed, bye");
+        }
+        if (arg == "-c" || arg == "--config")
+        {
+            if (++i >= argc)
+            {
+                throw fatal_error("missing value for option " + std::string{arg});
+            }
+            config_file = argv[i];
+        }
+        else if (arg.starts_with(config_eq))
+        {
+            config_file = std::string{arg.substr(config_eq.size())};
+        }
+        else
+        {
+            throw fatal_error("unknown argument: " + std::string{arg});
+        }
     }
-
-    po::notify(vm);
 
     LOG_INF("loading configuration from {}", config_file);
     std::ifstream in(config_file.c_str());
