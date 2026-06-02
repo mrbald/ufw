@@ -234,13 +234,13 @@ BENCHMARK(ring_multicast_buffer_push)->Arg(0)->Arg(1)->Arg(4)->UseRealTime();
 // platform: Darwin arm64 | build: build/Release | filter: ring_
 // Benchmark                                       Time             CPU   Iterations UserCounters...
 // -------------------------------------------------------------------------------------------------
-// ring_push_pop                                2.03 ns         2.03 ns    137856334 items_per_second=492.182M/s
-// ring_spsc_throughput/real_time               2.00 ns         2.00 ns    100000000 items_per_second=499.55M/s
-// ring_pingpong_latency/real_time              85.4 ns         85.4 ns      3372514 items_per_second=11.7156M/s
-// ring_multicast_throughput/1/real_time        17.3 ns         17.3 ns     15282772 items_per_second=57.7335M/s
-// ring_multicast_throughput/4/real_time        36.9 ns         36.7 ns     11926016 items_per_second=27.1347M/s
-// ring_multicast_drain/real_time               9.22 ns         9.22 ns     33703841 items_per_second=108.433M/s
-// ring_multicast_buffer_push/0/real_time       2.15 ns         2.15 ns    126617098 items_per_second=464.862M/s
-// ring_multicast_buffer_push/1/real_time       5.88 ns         5.88 ns     53933970 items_per_second=170.038M/s
-// ring_multicast_buffer_push/4/real_time       20.0 ns         20.0 ns     13031261 items_per_second=49.941M/s
+// ring_push_pop                                1.93 ns         1.93 ns    143128064 items_per_second=517.74M/s
+// ring_spsc_throughput/real_time               3.06 ns         3.05 ns    100000000 items_per_second=326.969M/s
+// ring_pingpong_latency/real_time              83.8 ns         83.8 ns      3175802 items_per_second=11.9347M/s
+// ring_multicast_throughput/1/real_time        17.1 ns         17.1 ns     16643509 items_per_second=58.6047M/s
+// ring_multicast_throughput/4/real_time        29.6 ns         29.5 ns      9393858 items_per_second=33.7712M/s
+// ring_multicast_drain/real_time               8.01 ns         8.01 ns     36539691 items_per_second=124.813M/s
+// ring_multicast_buffer_push/0/real_time       1.86 ns         1.86 ns    150351615 items_per_second=536.484M/s
+// ring_multicast_buffer_push/1/real_time       4.08 ns         4.07 ns     62464678 items_per_second=245.395M/s
+// ring_multicast_buffer_push/4/real_time       5.84 ns         5.82 ns     50333233 items_per_second=171.236M/s
 // <<<END BENCHMARK RESULTS>>>

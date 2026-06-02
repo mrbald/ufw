@@ -13,15 +13,16 @@
  * request retransmission / a snapshot — is the caller's policy, a separate concern
  * the buffer knows nothing about.
  *
- * Per-slot seqlock. Each slot carries a stamp = (position << 1) | writing-bit;
- * 0 means "never written". The single producer marks the slot writing (odd),
- * overwrites the payload, then publishes done (even). A buffer_reader at its
- * expected position E reads stamp s of slot (E & mask):
- *   s == 0 or (s>>1) < E   -> empty   (slot still holds an older lap; E not produced)
- *   (s>>1) == E, writing    -> empty   (E is being written right this moment)
- *   (s>>1) == E, done       -> seqlock-read the payload, re-check the stamp is
- *                              unchanged -> ok
- *   (s>>1)  > E             -> lapped: the producer overwrote E; resync forward to
+ * Per-slot seqlock, co-located with the payload. Each slot is { stamp, value } so a
+ * reader's stamp/value/stamp seqlock and the producer's stamp/value/stamp write each
+ * touch a SINGLE cache line (for small T) instead of bouncing two arrays. The stamp
+ * is (position << 1) | writing-bit; 0 means "never written". The single producer
+ * marks the slot writing (odd), overwrites the payload, then publishes done (even).
+ * A buffer_reader at its expected position E reads slot (E & mask):
+ *   stamp == 0 or (>>1) < E -> empty   (slot still holds an older lap; E not produced)
+ *   (>>1) == E, writing      -> empty   (E is being written right this moment)
+ *   (>>1) == E, done         -> read the payload, re-check the stamp is unchanged -> ok
+ *   (>>1)  > E               -> lapped: the producer overwrote E; resync forward to
  *                              the OLDEST position still in the buffer (salvage what
  *                              is left) and report how many were skipped.
  * Positions are 1-based so the all-zero "never written" stamp is unambiguous; the
@@ -35,17 +36,31 @@
  */
 #pragma once
 
+#include <ufw/core/mem/memory_region.hpp>
+
 #include "sequencer.hpp" // cache_line
-#include "slots.hpp"
 
 #include <atomic>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
-#include <memory>
+#include <new>
+#include <type_traits>
 
 namespace ufw::core {
 
 enum class read_status : std::uint8_t { ok, empty, lapped };
+
+namespace detail {
+// One slot = its seqlock stamp co-located with its payload, so the seqlock's
+// stamp/value/stamp accesses land on a single cache line for small T.
+template <class T>
+struct stamped_slot
+{
+    std::atomic<std::uint64_t> seq; // (position << 1) | writing-bit; 0 = never written
+    T value;
+};
+} // namespace detail
 
 // Independent, registry-free reader over a multicast_buffer. Detects when the
 // producer has lapped it and resyncs forward; move-only (copying would alias a
@@ -54,11 +69,10 @@ template <class T>
 class buffer_reader
 {
 public:
-    buffer_reader(T const* slots, std::atomic<std::uint64_t> const* stamps,
+    buffer_reader(detail::stamped_slot<T> const* slots,
                   std::atomic<std::uint64_t> const* produce_pos,
                   std::uint64_t mask, std::uint64_t start_pos) noexcept:
-        slots_{slots}, stamps_{stamps}, produce_pos_{produce_pos},
-        mask_{mask}, read_pos_{start_pos}
+        slots_{slots}, produce_pos_{produce_pos}, mask_{mask}, read_pos_{start_pos}
     {
     }
 
@@ -74,8 +88,8 @@ public:
     // oldest still-readable position, and `skipped` is how many records were lost.
     [[nodiscard]] read_status try_read(T& out, std::uint64_t& skipped) noexcept
     {
-        std::uint64_t const slot = read_pos_ & mask_;
-        std::uint64_t const s0 = stamps_[slot].load(std::memory_order_acquire);
+        detail::stamped_slot<T> const& s = slots_[read_pos_ & mask_];
+        std::uint64_t const s0 = s.seq.load(std::memory_order_acquire);
         if (s0 == 0)
         {
             return read_status::empty;             // slot never written
@@ -93,10 +107,10 @@ public:
         {
             return read_status::empty;             // E is being written right now
         }
-        // stable at E: seqlock read, then re-check the stamp did not move.
-        out = slots_[slot];
+        // stable at E: read the payload, then re-check the stamp did not move.
+        out = s.value;
         std::atomic_thread_fence(std::memory_order_acquire);
-        std::uint64_t const s1 = stamps_[slot].load(std::memory_order_relaxed);
+        std::uint64_t const s1 = s.seq.load(std::memory_order_relaxed);
         if (s1 != s0)
         {
             return resync(skipped, s1 >> 1);       // overwritten mid-read -> we were lapped
@@ -123,8 +137,7 @@ private:
         return read_status::lapped;
     }
 
-    T const*                          slots_;
-    std::atomic<std::uint64_t> const* stamps_;
+    detail::stamped_slot<T> const*    slots_;
     std::atomic<std::uint64_t> const* produce_pos_;
     std::uint64_t                     mask_;
     std::uint64_t                     read_pos_;
@@ -133,25 +146,46 @@ private:
 template <class T>
 class multicast_buffer
 {
+    static_assert(std::is_trivially_copyable_v<T>, "multicast_buffer requires a trivially-copyable T");
+    using slot = detail::stamped_slot<T>;
+
 public:
     explicit multicast_buffer(std::size_t min_slots):
-        payloads_{min_slots},
-        stamps_{std::make_unique<std::atomic<std::uint64_t>[]>(payloads_.capacity())} // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+        n_slots_{std::bit_ceil(min_slots < 1 ? std::size_t{1} : min_slots)},
+        region_{{.bytes = n_slots_ * sizeof(slot)}},
+        slots_{reinterpret_cast<slot*>(region_.data())}
     {
+        for (std::size_t i = 0; i < n_slots_; ++i)
+        {
+            ::new (static_cast<void*>(slots_ + i)) slot{}; // start lifetimes; seq = 0, value = 0
+        }
     }
 
-    [[nodiscard]] std::size_t capacity() const noexcept { return payloads_.capacity(); }
+    ~multicast_buffer()
+    {
+        for (std::size_t i = 0; i < n_slots_; ++i)
+        {
+            (slots_ + i)->~slot();
+        }
+    }
+
+    multicast_buffer(multicast_buffer const&) = delete;
+    multicast_buffer& operator=(multicast_buffer const&) = delete;
+    multicast_buffer(multicast_buffer&&) = delete;            // slots_ points into region_
+    multicast_buffer& operator=(multicast_buffer&&) = delete;
+
+    [[nodiscard]] std::size_t capacity() const noexcept { return n_slots_; }
 
     // Producer side (one thread). Never blocks; overwrites the oldest slot.
     void push(T const& value) noexcept
     {
-        std::uint64_t const pos  = produce_pos_.load(std::memory_order_relaxed); // producer-local
-        std::uint64_t const slot = pos & mask();
-        stamps_[slot].store((pos << 1) | 1U, std::memory_order_relaxed); // writing (odd)
+        std::uint64_t const pos = produce_pos_.load(std::memory_order_relaxed); // producer-local
+        slot& s = slots_[pos & mask()];
+        s.seq.store((pos << 1) | 1U, std::memory_order_relaxed);        // writing (odd)
         std::atomic_thread_fence(std::memory_order_release);
-        *payloads_.slot(pos) = value;                                    // overwrite payload
-        stamps_[slot].store(pos << 1, std::memory_order_release);        // done (even)
-        produce_pos_.store(pos + 1, std::memory_order_release);          // publish the live edge
+        s.value = value;                                                // overwrite payload
+        s.seq.store(pos << 1, std::memory_order_release);              // done (even)
+        produce_pos_.store(pos + 1, std::memory_order_release);        // publish the live edge
     }
 
     // Hand out an independent reader, starting at the first position (1). If the
@@ -159,17 +193,15 @@ public:
     // to the oldest still-readable record. (1-based: position 0 is the sentinel.)
     [[nodiscard]] buffer_reader<T> subscribe() const noexcept
     {
-        return buffer_reader<T>{payloads_.data(), stamps_.get(), &produce_pos_, mask(), 1};
+        return buffer_reader<T>{slots_, &produce_pos_, mask(), 1};
     }
 
 private:
-    [[nodiscard]] std::uint64_t mask() const noexcept { return payloads_.capacity() - 1; }
+    [[nodiscard]] std::uint64_t mask() const noexcept { return n_slots_ - 1; }
 
-    slot_storage<T> payloads_;
-    // Runtime-sized array of atomics: vector<atomic> can't reallocate (atomics don't
-    // move) and std::array needs a compile-time size, so unique_ptr<T[]> is the fit.
-    // (Co-locating each stamp with its payload in one cache line is a future tuning.)
-    std::unique_ptr<std::atomic<std::uint64_t>[]> stamps_; // NOLINT(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+    std::size_t   n_slots_;
+    memory_region region_;
+    slot*         slots_;
     alignas(cache_line) std::atomic<std::uint64_t> produce_pos_{1}; // next position to write; published
 };
 
