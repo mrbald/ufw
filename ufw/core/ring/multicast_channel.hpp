@@ -33,10 +33,10 @@
 namespace ufw::core {
 
 template <class T>
-class multicast_ring
+class multicast_channel
 {
 public:
-    multicast_ring(std::size_t min_slots, std::size_t subscribers):
+    multicast_channel(std::size_t min_slots, std::size_t subscribers):
         storage_{min_slots},
         n_subs_{subscribers < 1 ? std::size_t{1} : subscribers},
         read_(n_subs_),
@@ -74,7 +74,7 @@ public:
         std::size_t const index = next_sub_.fetch_add(1, std::memory_order_relaxed);
         if (index >= n_subs_)
         {
-            throw std::out_of_range("multicast_ring: more subscribers than reserved");
+            throw std::out_of_range("multicast_channel: more subscribers than reserved");
         }
         return reader<T>{storage_, producer_pos_, read_[index].value};
     }

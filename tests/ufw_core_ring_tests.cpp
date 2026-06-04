@@ -2,7 +2,8 @@
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
  * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
  *
- * Stage 1B: fixed-size SPSC ring<T> and multicast (pub/sub fan-out) ring<T>.
+ * Stage 1B: SPSC ring<T>, loss-free multicast_channel<T> (gated by the slowest
+ * subscriber), and lossy multicast_feed<T> (overwriting, never-waiting).
  * Tests are the executable spec. The concurrent tests pick a yield wait-policy on
  * a failed try_* (back-pressure is a signal; the wait is the caller's) so they make
  * progress under thread oversubscription (e.g. a 2-core CI runner) instead of a
@@ -10,8 +11,8 @@
  */
 #include <boost/test/unit_test.hpp>
 
-#include <ufw/core/ring/multicast_buffer.hpp>
-#include <ufw/core/ring/multicast_ring.hpp>
+#include <ufw/core/ring/multicast_feed.hpp>
+#include <ufw/core/ring/multicast_channel.hpp>
 #include <ufw/core/ring/spsc_ring.hpp>
 
 #include <atomic>
@@ -23,8 +24,8 @@
 
 namespace {
 
-using ufw::core::multicast_buffer;
-using ufw::core::multicast_ring;
+using ufw::core::multicast_feed;
+using ufw::core::multicast_channel;
 using ufw::core::read_status;
 using ufw::core::spsc_ring;
 
@@ -161,18 +162,18 @@ BOOST_AUTO_TEST_CASE(concurrent_spsc_preserves_order_and_values)
 
 BOOST_AUTO_TEST_SUITE_END(/* ufw_core_spsc_ring */)
 
-BOOST_AUTO_TEST_SUITE(ufw_core_multicast_ring)
+BOOST_AUTO_TEST_SUITE(ufw_core_multicast_channel)
 
 BOOST_AUTO_TEST_CASE(reports_capacity_and_subscriber_count)
 {
-    multicast_ring<int> ring{5, 3};
+    multicast_channel<int> ring{5, 3};
     BOOST_TEST(ring.capacity() == 8u);
     BOOST_TEST(ring.subscribers() == 3u);
 }
 
 BOOST_AUTO_TEST_CASE(single_subscriber_sees_all_in_order)
 {
-    multicast_ring<int> ring{8, 1};
+    multicast_channel<int> ring{8, 1};
     auto sub = ring.subscribe();
     for (int i = 0; i < 6; ++i)
     {
@@ -192,7 +193,7 @@ BOOST_AUTO_TEST_CASE(single_subscriber_sees_all_in_order)
 // stream, in order.
 BOOST_AUTO_TEST_CASE(every_subscriber_sees_every_record)
 {
-    multicast_ring<int> ring{8, 2};
+    multicast_channel<int> ring{8, 2};
     auto a = ring.subscribe();
     auto b = ring.subscribe();
     for (int i = 0; i < 6; ++i)
@@ -213,7 +214,7 @@ BOOST_AUTO_TEST_CASE(every_subscriber_sees_every_record)
 // Loss-free: a slot is not reused until the SLOWEST subscriber has read it.
 BOOST_AUTO_TEST_CASE(producer_is_gated_by_the_slowest_subscriber)
 {
-    multicast_ring<int> ring{4, 2};
+    multicast_channel<int> ring{4, 2};
     auto a = ring.subscribe();
     auto b = ring.subscribe();
     for (int i = 0; i < 4; ++i)
@@ -237,7 +238,7 @@ BOOST_AUTO_TEST_CASE(producer_is_gated_by_the_slowest_subscriber)
 
 BOOST_AUTO_TEST_CASE(subscribing_past_the_reserved_count_throws)
 {
-    multicast_ring<int> ring{4, 1};
+    multicast_channel<int> ring{4, 1};
     [[maybe_unused]] auto const sub = ring.subscribe(); // claims the one reserved slot
     BOOST_CHECK_THROW((void)ring.subscribe(), std::out_of_range);
 }
@@ -249,7 +250,7 @@ BOOST_AUTO_TEST_CASE(concurrent_multicast_every_subscriber_sees_full_stream)
 {
     constexpr std::uint64_t count = 1U << 16;
     constexpr std::size_t subs = 4;
-    multicast_ring<std::uint64_t> ring{1024, subs};
+    multicast_channel<std::uint64_t> ring{1024, subs};
 
     std::atomic<int> failures{0};
     std::vector<std::thread> readers;
@@ -297,13 +298,13 @@ BOOST_AUTO_TEST_CASE(concurrent_multicast_every_subscriber_sees_full_stream)
     BOOST_TEST(failures.load() == 0);
 }
 
-BOOST_AUTO_TEST_SUITE_END(/* ufw_core_multicast_ring */)
+BOOST_AUTO_TEST_SUITE_END(/* ufw_core_multicast_channel */)
 
-BOOST_AUTO_TEST_SUITE(ufw_core_multicast_buffer)
+BOOST_AUTO_TEST_SUITE(ufw_core_multicast_feed)
 
 BOOST_AUTO_TEST_CASE(reader_in_step_sees_every_record)
 {
-    multicast_buffer<int> buf{8};
+    multicast_feed<int> buf{8};
     auto r = buf.subscribe();
     int out = 0;
     std::uint64_t skipped = 0;
@@ -322,7 +323,7 @@ BOOST_AUTO_TEST_CASE(reader_in_step_sees_every_record)
 
 BOOST_AUTO_TEST_CASE(independent_readers_each_see_the_stream)
 {
-    multicast_buffer<int> buf{8};
+    multicast_feed<int> buf{8};
     auto a = buf.subscribe();
     auto b = buf.subscribe();
     for (int i = 1; i <= 5; ++i)
@@ -347,7 +348,7 @@ BOOST_AUTO_TEST_CASE(independent_readers_each_see_the_stream)
 // then read 2..5 cleanly.
 BOOST_AUTO_TEST_CASE(lapped_reader_resyncs_to_oldest_and_reports_the_gap)
 {
-    multicast_buffer<std::uint64_t> buf{4};
+    multicast_feed<std::uint64_t> buf{4};
     BOOST_REQUIRE_EQUAL(buf.capacity(), 4u);
     auto r = buf.subscribe();
     for (std::uint64_t p = 1; p <= 4; ++p)
@@ -376,7 +377,7 @@ BOOST_AUTO_TEST_CASE(lapped_reader_resyncs_to_oldest_and_reports_the_gap)
 BOOST_AUTO_TEST_CASE(concurrent_lossy_no_torn_reads_and_full_coverage)
 {
     constexpr std::uint64_t count = 1U << 18;
-    multicast_buffer<std::uint64_t> buf{1024};
+    multicast_feed<std::uint64_t> buf{1024};
     auto r = buf.subscribe();
 
     std::thread producer([&buf]
@@ -416,6 +417,6 @@ BOOST_AUTO_TEST_CASE(concurrent_lossy_no_torn_reads_and_full_coverage)
     BOOST_TEST(read_count + skipped_total == count); // every record read or skipped, once
 }
 
-BOOST_AUTO_TEST_SUITE_END(/* ufw_core_multicast_buffer */)
+BOOST_AUTO_TEST_SUITE_END(/* ufw_core_multicast_feed */)
 
 } // namespace

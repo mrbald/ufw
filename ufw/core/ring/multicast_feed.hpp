@@ -4,8 +4,8 @@
  *
  * Fixed-size single-producer / multi-subscriber LOSSY MULTICAST buffer of
  * trivially-copyable T — the Aeron broadcast-buffer discipline, and the
- * complementary half of multicast_ring. Where multicast_ring is loss-free and
- * therefore GATED by the slowest subscriber, multicast_buffer's producer NEVER
+ * complementary half of multicast_channel. Where multicast_channel is loss-free and
+ * therefore GATED by the slowest subscriber, multicast_feed's producer NEVER
  * waits: it overwrites the oldest slot and runs at ~SPSC speed no matter how many
  * subscribers exist or how far behind they are. There is no subscriber registry
  * and no gate. A subscriber that falls behind is DETECTED (the producer lapped it)
@@ -18,7 +18,7 @@
  * touch a SINGLE cache line (for small T) instead of bouncing two arrays. The stamp
  * is (position << 1) | writing-bit; 0 means "never written". The single producer
  * marks the slot writing (odd), overwrites the payload, then publishes done (even).
- * A buffer_reader at its expected position E reads slot (E & mask):
+ * A feed_reader at its expected position E reads slot (E & mask):
  *   stamp == 0 or (>>1) < E -> empty   (slot still holds an older lap; E not produced)
  *   (>>1) == E, writing      -> empty   (E is being written right this moment)
  *   (>>1) == E, done         -> read the payload, re-check the stamp is unchanged -> ok
@@ -62,25 +62,25 @@ struct stamped_slot
 };
 } // namespace detail
 
-// Independent, registry-free reader over a multicast_buffer. Detects when the
+// Independent, registry-free reader over a multicast_feed. Detects when the
 // producer has lapped it and resyncs forward; move-only (copying would alias a
 // position with no benefit).
 template <class T>
-class buffer_reader
+class feed_reader
 {
 public:
-    buffer_reader(detail::stamped_slot<T> const* slots,
+    feed_reader(detail::stamped_slot<T> const* slots,
                   std::atomic<std::uint64_t> const* produce_pos,
                   std::uint64_t mask, std::uint64_t start_pos) noexcept:
         slots_{slots}, produce_pos_{produce_pos}, mask_{mask}, read_pos_{start_pos}
     {
     }
 
-    ~buffer_reader() = default;
-    buffer_reader(buffer_reader&&) noexcept = default;
-    buffer_reader& operator=(buffer_reader&&) noexcept = default;
-    buffer_reader(buffer_reader const&) = delete;
-    buffer_reader& operator=(buffer_reader const&) = delete;
+    ~feed_reader() = default;
+    feed_reader(feed_reader&&) noexcept = default;
+    feed_reader& operator=(feed_reader&&) noexcept = default;
+    feed_reader(feed_reader const&) = delete;
+    feed_reader& operator=(feed_reader const&) = delete;
 
     // Try to read the next record. ok: `out` is set and the position advanced by 1.
     // empty: nothing new (or being written). lapped: the producer overwrote records
@@ -144,13 +144,13 @@ private:
 };
 
 template <class T>
-class multicast_buffer
+class multicast_feed
 {
-    static_assert(std::is_trivially_copyable_v<T>, "multicast_buffer requires a trivially-copyable T");
+    static_assert(std::is_trivially_copyable_v<T>, "multicast_feed requires a trivially-copyable T");
     using slot = detail::stamped_slot<T>;
 
 public:
-    explicit multicast_buffer(std::size_t min_slots):
+    explicit multicast_feed(std::size_t min_slots):
         n_slots_{std::bit_ceil(min_slots < 1 ? std::size_t{1} : min_slots)},
         region_{{.bytes = n_slots_ * sizeof(slot)}},
         slots_{reinterpret_cast<slot*>(region_.data())}
@@ -161,7 +161,7 @@ public:
         }
     }
 
-    ~multicast_buffer()
+    ~multicast_feed()
     {
         for (std::size_t i = 0; i < n_slots_; ++i)
         {
@@ -169,10 +169,10 @@ public:
         }
     }
 
-    multicast_buffer(multicast_buffer const&) = delete;
-    multicast_buffer& operator=(multicast_buffer const&) = delete;
-    multicast_buffer(multicast_buffer&&) = delete;            // slots_ points into region_
-    multicast_buffer& operator=(multicast_buffer&&) = delete;
+    multicast_feed(multicast_feed const&) = delete;
+    multicast_feed& operator=(multicast_feed const&) = delete;
+    multicast_feed(multicast_feed&&) = delete;            // slots_ points into region_
+    multicast_feed& operator=(multicast_feed&&) = delete;
 
     [[nodiscard]] std::size_t capacity() const noexcept { return n_slots_; }
 
@@ -191,9 +191,9 @@ public:
     // Hand out an independent reader, starting at the first position (1). If the
     // producer has already lapped past it, the first read reports a gap and resyncs
     // to the oldest still-readable record. (1-based: position 0 is the sentinel.)
-    [[nodiscard]] buffer_reader<T> subscribe() const noexcept
+    [[nodiscard]] feed_reader<T> subscribe() const noexcept
     {
-        return buffer_reader<T>{slots_, &produce_pos_, mask(), 1};
+        return feed_reader<T>{slots_, &produce_pos_, mask(), 1};
     }
 
 private:
