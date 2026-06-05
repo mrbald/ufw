@@ -32,17 +32,17 @@
 
 namespace ufw::core {
 
-template <class T>
-class multicast_channel : public ring_producer<multicast_channel<T>, T>
+template <class T, class Gate = multicast_gate>
+class multicast_channel : public ring_producer<multicast_channel<T, Gate>, T>
 {
-    friend class ring_producer<multicast_channel<T>, T>; // producer wrappers reach storage_/producer_
+    friend class ring_producer<multicast_channel<T, Gate>, T>; // producer wrappers reach storage_/producer_
 
 public:
     multicast_channel(std::size_t min_slots, std::size_t subscribers):
         storage_{min_slots},
         n_subs_{subscribers < 1 ? std::size_t{1} : subscribers},
         read_(n_subs_),
-        producer_{producer_pos_, multicast_gate{read_.data(), n_subs_}, storage_.capacity()}
+        producer_{producer_pos_, Gate{read_.data(), n_subs_}, storage_.capacity()}
     {
     }
 
@@ -74,7 +74,7 @@ private:
     alignas(cache_line) std::atomic<std::uint64_t> producer_pos_{0}; // producer -> subscribers
     alignas(cache_line) std::atomic<std::size_t>   next_sub_{0};     // subscribe() hand-out counter
 
-    alignas(cache_line) producer<multicast_gate> producer_;
+    alignas(cache_line) producer<Gate> producer_;
 };
 
 } // namespace ufw::core

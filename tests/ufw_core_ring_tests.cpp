@@ -341,6 +341,33 @@ BOOST_AUTO_TEST_CASE(producer_is_gated_by_the_slowest_subscriber)
     BOOST_REQUIRE(ring.try_push(99));     // one slot freed (gate = min(4, 1) = 1)
 }
 
+// The gate is pluggable: multicast_channel with lazy_min_gate (the cached-argmin
+// floor) must give the SAME loss-free, slowest-subscriber back-pressure as the
+// default multicast_gate.
+BOOST_AUTO_TEST_CASE(lazy_min_gate_channel_is_loss_free_and_gated_by_the_slowest)
+{
+    multicast_channel<int, ufw::core::lazy_min_gate> ring{4, 2};
+    auto a = ring.subscribe();
+    auto b = ring.subscribe();
+    for (int i = 0; i < 4; ++i)
+    {
+        BOOST_REQUIRE(ring.try_push(i)); // fill capacity
+    }
+    BOOST_REQUIRE(!ring.try_push(99));   // full: floor = min(0, 0)
+
+    int v = -1;
+    for (int i = 0; i < 4; ++i)
+    {
+        BOOST_REQUIRE(a.try_pop(v));     // a drains everything
+        BOOST_REQUIRE_EQUAL(v, i);
+    }
+    BOOST_REQUIRE(!ring.try_push(99));   // STILL full: lazy floor pinned by b at 0
+
+    BOOST_REQUIRE(b.try_pop(v));         // b advances past the laggard trip
+    BOOST_REQUIRE_EQUAL(v, 0);
+    BOOST_REQUIRE(ring.try_push(99));    // floor advanced -> one slot freed
+}
+
 BOOST_AUTO_TEST_CASE(subscribing_past_the_reserved_count_throws)
 {
     multicast_channel<int> ring{4, 1};
