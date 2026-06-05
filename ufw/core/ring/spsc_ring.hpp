@@ -7,7 +7,7 @@
  * in producer<Gate>/spsc_gate (sequencer.hpp); the slot array in slot_storage<T>
  * (slots.hpp). The consumer is kept INLINE here (direct members, not the detached
  * reader<T>): for the SPSC hot path the pointer indirection of a detached reader
- * costs ~2x throughput, and the ring *is* its single consumer. broadcast_ring,
+ * costs ~2x throughput, and the ring *is* its single consumer. multicast_channel,
  * whose subscribers are genuinely separate objects, uses reader<T> instead.
  */
 #pragma once
