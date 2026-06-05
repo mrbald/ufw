@@ -23,8 +23,10 @@
 namespace ufw::core {
 
 template <class T>
-class spsc_ring
+class spsc_ring : public ring_producer<spsc_ring<T>, T>
 {
+    friend class ring_producer<spsc_ring<T>, T>; // producer wrappers reach storage_/producer_
+
 public:
     explicit spsc_ring(std::size_t min_slots):
         storage_{min_slots},
@@ -34,36 +36,8 @@ public:
 
     [[nodiscard]] std::size_t capacity() const noexcept { return storage_.capacity(); }
 
-    // --- producer side (one thread) ---
-    [[nodiscard]] T* try_claim() noexcept
-    {
-        auto const pos = producer_.claim(1);
-        return pos ? storage_.slot(*pos) : nullptr;
-    }
-    // Batch producer: claim a contiguous run of up to `n` slots — clamped to the
-    // ring end so the span never straddles the wrap, and to free space. Fill the
-    // span, then commit() ONCE to publish the whole batch, amortizing the cursor
-    // release store over the run. May be shorter than `n`, or empty under back-
-    // pressure; the caller loops to claim the tail (which starts at the wrap).
-    [[nodiscard]] std::span<T> try_claim_batch(std::uint64_t n) noexcept
-    {
-        std::uint64_t const pos = producer_.claimed();
-        std::uint64_t const to_wrap = storage_.capacity() - (pos & storage_.mask());
-        std::uint64_t const granted = producer_.claim_upto(n < to_wrap ? n : to_wrap);
-        return {storage_.slot(pos), granted};
-    }
-    void commit() noexcept { producer_.publish(); }
-    bool try_push(T const& value) noexcept
-    {
-        T* const target = try_claim();
-        if (target == nullptr)
-        {
-            return false;
-        }
-        *target = value;
-        commit();
-        return true;
-    }
+    // --- producer side (one thread) --- try_claim / try_claim_batch / commit /
+    // try_push come from ring_producer<spsc_ring<T>, T> (slots.hpp).
 
     // --- consumer side (one thread) --- inline; mirrors reader<T> but on direct
     // members (the SPSC fast path can't afford a detached reader's indirection).

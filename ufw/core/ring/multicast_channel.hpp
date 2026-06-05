@@ -27,15 +27,16 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <span>
 #include <stdexcept>
 #include <vector>
 
 namespace ufw::core {
 
 template <class T>
-class multicast_channel
+class multicast_channel : public ring_producer<multicast_channel<T>, T>
 {
+    friend class ring_producer<multicast_channel<T>, T>; // producer wrappers reach storage_/producer_
+
 public:
     multicast_channel(std::size_t min_slots, std::size_t subscribers):
         storage_{min_slots},
@@ -48,33 +49,9 @@ public:
     [[nodiscard]] std::size_t capacity() const noexcept { return storage_.capacity(); }
     [[nodiscard]] std::size_t subscribers() const noexcept { return n_subs_; }
 
-    // --- producer side (one thread) --- IDENTICAL to spsc_ring.
-    [[nodiscard]] T* try_claim() noexcept
-    {
-        auto const pos = producer_.claim(1);
-        return pos ? storage_.slot(*pos) : nullptr;
-    }
-    // Batch producer (IDENTICAL to spsc_ring): a contiguous run of up to `n` slots,
-    // clamped to the ring end and free space; fill, then commit() once.
-    [[nodiscard]] std::span<T> try_claim_batch(std::uint64_t n) noexcept
-    {
-        std::uint64_t const pos = producer_.claimed();
-        std::uint64_t const to_wrap = storage_.capacity() - (pos & storage_.mask());
-        std::uint64_t const granted = producer_.claim_upto(n < to_wrap ? n : to_wrap);
-        return {storage_.slot(pos), granted};
-    }
-    void commit() noexcept { producer_.publish(); }
-    bool try_push(T const& value) noexcept
-    {
-        T* const target = try_claim();
-        if (target == nullptr)
-        {
-            return false;
-        }
-        *target = value;
-        commit();
-        return true;
-    }
+    // --- producer side (one thread) --- try_claim / try_claim_batch / commit /
+    // try_push come from ring_producer<multicast_channel<T>, T> (slots.hpp); the
+    // producer is identical to spsc_ring's, only the gate differs.
 
     // Hand out the next of `subscribers` independent read cursors (thread-safe).
     // Each is a reader<T> that sees the whole stream in order. Throws once

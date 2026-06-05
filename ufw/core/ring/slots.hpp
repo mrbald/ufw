@@ -143,4 +143,50 @@ private:
     std::uint64_t cached_producer_ = 0;
 };
 
+// The single-producer "claim a slot, publish" facade shared VERBATIM by every typed
+// ring (spsc_ring, multicast_channel): the only thing that differs between rings is
+// the GATE inside producer<Gate>, never these wrappers. A CRTP mixin rather than an
+// owning base, because each ring constructs its own storage_ + producer_ in member
+// order and an owning base would be built before them. The Derived must expose
+// storage_ (a slot_storage<T>) and producer_ (a producer<Gate>) to this mixin (via
+// friend). The consumer side is deliberately NOT shared here: spsc_ring inlines its
+// consumer on direct members because a detached reader<T>'s indirection costs ~2x.
+template <class Derived, class T>
+class ring_producer
+{
+public:
+    // Claim one slot to fill in place; commit() publishes it. Null under back-pressure.
+    [[nodiscard]] T* try_claim() noexcept
+    {
+        auto const pos = self().producer_.claim(1);
+        return pos ? self().storage_.slot(*pos) : nullptr;
+    }
+    // Claim a contiguous run of up to `n` slots, clamped to the ring end (so the span
+    // never straddles the wrap) and to free space; fill, then commit() ONCE.
+    [[nodiscard]] std::span<T> try_claim_batch(std::uint64_t n) noexcept
+    {
+        std::uint64_t const pos = self().producer_.claimed();
+        std::uint64_t const to_wrap = self().storage_.capacity() - (pos & self().storage_.mask());
+        std::uint64_t const granted = self().producer_.claim_upto(n < to_wrap ? n : to_wrap);
+        return {self().storage_.slot(pos), granted};
+    }
+    void commit() noexcept { self().producer_.publish(); }
+    // Convenience: claim one, copy, commit. False under back-pressure (not nodiscard:
+    // callers on an uncontended path legitimately ignore it, e.g. ring_push_pop).
+    bool try_push(T const& value) noexcept
+    {
+        T* const target = try_claim();
+        if (target == nullptr)
+        {
+            return false;
+        }
+        *target = value;
+        commit();
+        return true;
+    }
+
+private:
+    [[nodiscard]] Derived& self() noexcept { return static_cast<Derived&>(*this); }
+};
+
 } // namespace ufw::core
