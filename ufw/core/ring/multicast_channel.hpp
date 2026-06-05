@@ -50,8 +50,8 @@ public:
     [[nodiscard]] std::size_t subscribers() const noexcept { return n_subs_; }
 
     // --- producer side (one thread) --- try_claim / try_claim_batch / commit /
-    // try_push come from ring_producer<multicast_channel<T>, T> (slots.hpp); the
-    // producer is identical to spsc_ring's, only the gate differs.
+    // try_push come from ring_producer<multicast_channel<T, Gate>, T> (slots.hpp);
+    // the producer is identical to spsc_ring's, only the gate differs.
 
     // Hand out the next of `subscribers` independent read cursors (thread-safe).
     // Each is a reader<T> that sees the whole stream in order. Throws once
