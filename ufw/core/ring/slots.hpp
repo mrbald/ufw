@@ -15,6 +15,7 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <type_traits>
 
 namespace ufw::core {
@@ -93,11 +94,31 @@ public:
         return slots_ + (read_pos_ & mask_);
     }
 
-    // Advance past the peeked record and publish progress (release: orders this
-    // reader's read of the slot before the producer may overwrite it).
-    void release() noexcept
+    // Batch peek: a contiguous run of all currently-available records, clamped to
+    // the ring end. Process them, then release(k) ONCE — amortizing this reader's
+    // cursor release store over the run. Because the cursor feeds the multicast
+    // gate, a coarser release also lets the producer's back-pressure floor advance
+    // in bigger jumps (fewer gate refreshes).
+    [[nodiscard]] std::span<T const> peek_batch() noexcept
     {
-        ++read_pos_;
+        if (read_pos_ == cached_producer_)
+        {
+            cached_producer_ = producer_pos_->load(std::memory_order_acquire);
+            if (read_pos_ == cached_producer_)
+            {
+                return {};
+            }
+        }
+        std::uint64_t const avail = cached_producer_ - read_pos_;
+        std::uint64_t const to_wrap = (mask_ + 1) - (read_pos_ & mask_);
+        return {slots_ + (read_pos_ & mask_), avail < to_wrap ? avail : to_wrap};
+    }
+
+    // Advance past the peeked record(s) and publish progress (release: orders this
+    // reader's reads of the slots before the producer may overwrite them).
+    void release(std::uint64_t n = 1) noexcept
+    {
+        read_pos_ += n;
         cursor_->store(read_pos_, std::memory_order_release);
     }
 

@@ -403,6 +403,98 @@ BOOST_AUTO_TEST_CASE(concurrent_multicast_every_subscriber_sees_full_stream)
     BOOST_TEST(failures.load() == 0);
 }
 
+// A subscriber drains in batches (peek a contiguous run, release it at once) and
+// still sees the whole stream in order; the release frees the gate so the producer
+// can refill across the wrap.
+BOOST_AUTO_TEST_CASE(subscriber_batch_drain_sees_full_stream_across_the_wrap)
+{
+    multicast_channel<std::uint64_t> ring{4, 1}; // capacity 4
+    auto sub = ring.subscribe();
+
+    std::uint64_t pushed = 0;
+    std::uint64_t expected = 0;
+    auto fill = [&] { while (ring.try_push(pushed)) { ++pushed; } };
+    auto drain = [&]
+    {
+        std::span<std::uint64_t const> const r = sub.peek_batch();
+        for (std::uint64_t const v : r)
+        {
+            BOOST_REQUIRE_EQUAL(v, expected);
+            ++expected;
+        }
+        if (!r.empty())
+        {
+            sub.release(r.size());
+        }
+        return r.size();
+    };
+
+    fill();                              // 0..3 fill capacity
+    BOOST_REQUIRE_EQUAL(pushed, 4u);
+    BOOST_REQUIRE(!ring.try_push(99));   // full: gated by the subscriber at 0
+    BOOST_REQUIRE_EQUAL(drain(), 4u);    // one batch of 4: values 0..3, frees the ring
+    fill();                              // 4..7 now fit (wrapped)
+    BOOST_REQUIRE_EQUAL(pushed, 8u);
+    BOOST_REQUIRE_EQUAL(drain(), 4u);    // values 4..7
+    BOOST_REQUIRE_EQUAL(expected, 8u);
+}
+
+// One producer, N subscriber threads each batch-draining the ENTIRE stream in
+// order, under constant wrap + slowest-subscriber back-pressure.
+BOOST_AUTO_TEST_CASE(concurrent_multicast_batch_subscribers_see_full_stream)
+{
+    constexpr std::uint64_t count = 1U << 16;
+    constexpr std::size_t subs = 4;
+    multicast_channel<std::uint64_t> ring{1024, subs};
+
+    std::atomic<int> failures{0};
+    std::vector<std::thread> readers;
+    for (std::size_t s = 0; s < subs; ++s)
+    {
+        readers.emplace_back([&ring, &failures]
+        {
+            auto sub = ring.subscribe();
+            std::uint64_t expected = 0;
+            while (expected < count)
+            {
+                std::span<std::uint64_t const> const r = sub.peek_batch();
+                if (r.empty())
+                {
+                    std::this_thread::yield();
+                    continue;
+                }
+                for (std::uint64_t const v : r)
+                {
+                    if (v != expected)
+                    {
+                        failures.fetch_add(1, std::memory_order_relaxed);
+                        return;
+                    }
+                    ++expected;
+                }
+                sub.release(r.size());
+            }
+        });
+    }
+
+    for (std::uint64_t i = 0; i < count;)
+    {
+        if (ring.try_push(i))
+        {
+            ++i;
+        }
+        else
+        {
+            std::this_thread::yield();
+        }
+    }
+    for (auto& t : readers)
+    {
+        t.join();
+    }
+    BOOST_TEST(failures.load() == 0);
+}
+
 BOOST_AUTO_TEST_SUITE_END(/* ufw_core_multicast_channel */)
 
 BOOST_AUTO_TEST_SUITE(ufw_core_multicast_feed)

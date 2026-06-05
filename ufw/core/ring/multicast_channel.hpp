@@ -27,6 +27,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <stdexcept>
 #include <vector>
 
@@ -52,6 +53,15 @@ public:
     {
         auto const pos = producer_.claim(1);
         return pos ? storage_.slot(*pos) : nullptr;
+    }
+    // Batch producer (IDENTICAL to spsc_ring): a contiguous run of up to `n` slots,
+    // clamped to the ring end and free space; fill, then commit() once.
+    [[nodiscard]] std::span<T> try_claim_batch(std::uint64_t n) noexcept
+    {
+        std::uint64_t const pos = producer_.claimed();
+        std::uint64_t const to_wrap = storage_.capacity() - (pos & storage_.mask());
+        std::uint64_t const granted = producer_.claim_upto(n < to_wrap ? n : to_wrap);
+        return {storage_.slot(pos), granted};
     }
     void commit() noexcept { producer_.publish(); }
     bool try_push(T const& value) noexcept
