@@ -86,6 +86,72 @@ private:
     std::size_t count_;
 };
 
+// An O(1)-on-the-common-path alternative to multicast_gate: the SAME min-over-N
+// floor, same ctor and role, but it avoids the full N-cursor scan when there is a
+// PERSISTENT laggard. It caches the slowest cursor's index plus a "trip" watermark
+// (the second-smallest cursor at the last scan). While the laggard stays at or
+// below the trip it alone is the floor, so position() reads ONE cursor; only when
+// the laggard overtakes the runner-up does it rescan all N and recompute the cache.
+//
+// Correct for the same reason multicast_gate is (sequential per-reader cursors),
+// resting on cursor MONOTONICITY: at the last scan every non-laggard was >= trip,
+// and cursors only move forward, so a laggard <= trip is provably still the global
+// minimum. Wins big with one slow reader dragging the floor; degrades to a full
+// scan per call when readers move in lock-step (trip == floor). The cache is
+// producer-LOCAL (the single producer owns its gate), so it needs no
+// synchronization; position() is non-const only because it mutates that cache.
+class lazy_min_gate
+{
+public:
+    lazy_min_gate(padded_sequence const* completed, std::size_t count) noexcept:
+        completed_{completed}, count_{count}
+    {
+        rescan();
+    }
+
+    [[nodiscard]] std::uint64_t position() noexcept
+    {
+        std::uint64_t const cur = completed_[slow_].value.load(std::memory_order_acquire);
+        if (cur <= trip_)
+        {
+            return cur;   // cached laggard is still the floor — one cursor read
+        }
+        return rescan();  // laggard overtook the runner-up — rescan and recache
+    }
+
+private:
+    // Find the smallest cursor (the new laggard) and the second-smallest (the trip
+    // watermark). O(N), runs only on a cache miss.
+    std::uint64_t rescan() noexcept
+    {
+        std::uint64_t lo  = std::numeric_limits<std::uint64_t>::max();
+        std::uint64_t lo2 = std::numeric_limits<std::uint64_t>::max();
+        std::size_t   lo_id = 0;
+        for (std::size_t i = 0; i < count_; ++i)
+        {
+            std::uint64_t const v = completed_[i].value.load(std::memory_order_acquire);
+            if (v < lo)
+            {
+                lo2 = lo;
+                lo = v;
+                lo_id = i;
+            }
+            else if (v < lo2)
+            {
+                lo2 = v;
+            }
+        }
+        slow_ = lo_id;
+        trip_ = lo2;
+        return lo;
+    }
+
+    padded_sequence const* completed_;
+    std::size_t   count_;
+    std::size_t   slow_ = 0;  // index of the cached slowest cursor
+    std::uint64_t trip_ = 0;  // floor stays valid while completed_[slow_] <= trip_
+};
+
 // Single-producer claim/publish over absolute monotonic positions. Reads free
 // space through an abstract gate (the completion floor), caching it and only
 // refreshing on apparent back-pressure (the standard cached-cursor optimization).
@@ -114,6 +180,23 @@ public:
         std::uint64_t const pos = claim_next_;
         claim_next_ = end;
         return pos;
+    }
+
+    // Claim AS MANY as the gate allows, up to `n` (may be 0). Advances the claim
+    // position by the granted count and returns it; the run starts at claimed().
+    // The partial-friendly sibling of claim() — for batch producers that take
+    // whatever space is free rather than all-or-nothing. Reads the gate at most once
+    // (only when `n` does not obviously fit the cached floor), like claim().
+    [[nodiscard]] std::uint64_t claim_upto(std::uint64_t n) noexcept
+    {
+        if (claim_next_ + n - cached_gate_ > capacity_)   // can't fit all n vs cached floor?
+        {
+            cached_gate_ = gate_.position();              // the only gate read — refresh
+        }
+        std::uint64_t const room = capacity_ - (claim_next_ - cached_gate_);
+        std::uint64_t const grant = n < room ? n : room;
+        claim_next_ += grant;
+        return grant;
     }
 
     // Publish all claims so far (release): consumers may now read up to here.

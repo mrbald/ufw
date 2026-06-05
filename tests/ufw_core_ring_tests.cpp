@@ -13,11 +13,15 @@
 
 #include <ufw/core/ring/multicast_feed.hpp>
 #include <ufw/core/ring/multicast_channel.hpp>
+#include <ufw/core/ring/sequencer.hpp>
 #include <ufw/core/ring/spsc_ring.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
+#include <span>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -155,6 +159,107 @@ BOOST_AUTO_TEST_CASE(concurrent_spsc_preserves_order_and_values)
         {
             std::this_thread::yield();
         }
+    }
+    producer.join();
+    BOOST_TEST(expected == count);
+}
+
+BOOST_AUTO_TEST_CASE(batch_claim_commit_peek_release_round_trips)
+{
+    spsc_ring<int> ring{8};
+    std::span<int> w = ring.try_claim_batch(5);
+    BOOST_REQUIRE_EQUAL(w.size(), 5u);
+    for (std::size_t i = 0; i < w.size(); ++i)
+    {
+        w[i] = static_cast<int>(i) * 10;
+    }
+    ring.commit();
+
+    std::span<int const> r = ring.peek_batch();
+    BOOST_REQUIRE_EQUAL(r.size(), 5u);
+    for (std::size_t i = 0; i < r.size(); ++i)
+    {
+        BOOST_REQUIRE_EQUAL(r[i], static_cast<int>(i) * 10);
+    }
+    ring.release(r.size());
+    BOOST_REQUIRE(ring.peek_batch().empty());
+}
+
+// A batch is clamped to the ring end so the returned span is always contiguous; the
+// caller re-claims for the tail (which starts at the wrap).
+BOOST_AUTO_TEST_CASE(batch_claim_clamps_to_the_wrap_boundary)
+{
+    spsc_ring<int> ring{8};
+    BOOST_REQUIRE_EQUAL(ring.capacity(), 8u);
+
+    std::span<int> a = ring.try_claim_batch(6); // from pos 0: all 6 fit contiguously
+    BOOST_REQUIRE_EQUAL(a.size(), 6u);
+    for (std::size_t i = 0; i < a.size(); ++i)
+    {
+        a[i] = static_cast<int>(i);
+    }
+    ring.commit();
+
+    std::span<int const> r = ring.peek_batch();
+    BOOST_REQUIRE_EQUAL(r.size(), 6u);
+    ring.release(r.size());                     // read_pos_ -> 6
+
+    std::span<int> b = ring.try_claim_batch(6); // from pos 6: only 8-6=2 to the ring end
+    BOOST_REQUIRE_EQUAL(b.size(), 2u);          // clamped to the wrap, not 6
+    b[0] = 60;
+    b[1] = 70;
+    ring.commit();
+
+    std::span<int> c = ring.try_claim_batch(6); // pos 8 -> slot 0: 6 free again
+    BOOST_REQUIRE_EQUAL(c.size(), 6u);
+}
+
+// The real ordering/visibility test for the batch path: a producer claims/fills/
+// commits in runs of up to 64 while a consumer drains whatever is available and
+// releases once per run, through a small ring (constant wrap + back-pressure).
+BOOST_AUTO_TEST_CASE(concurrent_batch_spsc_preserves_order_and_values)
+{
+    constexpr std::uint64_t count = 1U << 18;
+    spsc_ring<std::uint64_t> ring{1024};
+
+    std::thread producer([&ring]
+    {
+        std::uint64_t v = 0;
+        while (v < count)
+        {
+            std::uint64_t const want = (count - v) < 64 ? (count - v) : 64;
+            std::span<std::uint64_t> w = ring.try_claim_batch(want);
+            if (w.empty())
+            {
+                std::this_thread::yield();
+                continue;
+            }
+            for (std::uint64_t& slot : w)
+            {
+                slot = v++;
+            }
+            ring.commit();
+        }
+    });
+
+    std::uint64_t expected = 0;
+    while (expected < count)
+    {
+        std::span<std::uint64_t const> r = ring.peek_batch();
+        if (r.empty())
+        {
+            std::this_thread::yield();
+            continue;
+        }
+        for (std::uint64_t const value : r)
+        {
+            if (value != expected)
+            {
+                BOOST_FAIL("order/value mismatch: expected " << expected << " got " << value);
+            }
+            ++expected;
+        }
+        ring.release(r.size());
     }
     producer.join();
     BOOST_TEST(expected == count);
@@ -418,5 +523,74 @@ BOOST_AUTO_TEST_CASE(concurrent_lossy_no_torn_reads_and_full_coverage)
 }
 
 BOOST_AUTO_TEST_SUITE_END(/* ufw_core_multicast_feed */)
+
+BOOST_AUTO_TEST_SUITE(ufw_core_lazy_min_gate)
+
+// lazy_min_gate must return EXACTLY the same floor as a naive min over the N
+// cursors after every advance. Drive a scripted sequence that exercises each
+// regime: a persistent laggard (O(1) fast path), the laggard leaping past the pack
+// (rescan), ties at the minimum, and lock-step advance (rescan every call) —
+// checking equivalence to the reference after every single store.
+BOOST_AUTO_TEST_CASE(floor_matches_naive_min_across_every_regime)
+{
+    constexpr std::size_t n = 5;
+    std::vector<ufw::core::padded_sequence> cur(n);
+    ufw::core::lazy_min_gate gate{cur.data(), n};
+
+    auto naive_min = [&cur]
+    {
+        std::uint64_t m = std::numeric_limits<std::uint64_t>::max();
+        for (auto const& c : cur)
+        {
+            m = std::min(m, c.value.load(std::memory_order_relaxed));
+        }
+        return m;
+    };
+    auto bump = [&](std::size_t i, std::uint64_t to)
+    {
+        cur[i].value.store(to, std::memory_order_relaxed);
+        BOOST_REQUIRE_EQUAL(gate.position(), naive_min());
+    };
+
+    // persistent laggard at 0, the pack races ahead, then the laggard creeps up
+    bump(1, 100);
+    bump(2, 200);
+    bump(3, 300);
+    bump(4, 400);
+    for (std::uint64_t v = 1; v <= 50; ++v)
+    {
+        bump(0, v); // stays below the pack -> fast path after the first rescan
+    }
+
+    // laggard leaps past the pack: a different cursor becomes the floor each time
+    bump(0, 1000); // floor jumps to cur[1]=100
+    bump(1, 1000); // floor jumps to cur[2]=200
+    bump(2, 1000); // floor jumps to cur[3]=300
+    bump(3, 1000); // floor jumps to cur[4]=400
+    bump(4, 1000); // all equal at 1000 (ties at the minimum)
+
+    // lock-step advance: the floor keeps crossing the trip -> rescan every step
+    for (std::uint64_t v = 1001; v <= 1050; ++v)
+    {
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            bump(i, v);
+        }
+    }
+}
+
+// One cursor: degenerates to spsc_gate behaviour — never rescans, always exact.
+BOOST_AUTO_TEST_CASE(single_cursor_tracks_exactly)
+{
+    std::vector<ufw::core::padded_sequence> cur(1);
+    ufw::core::lazy_min_gate gate{cur.data(), 1};
+    for (std::uint64_t v = 0; v <= 20; ++v)
+    {
+        cur[0].value.store(v, std::memory_order_relaxed);
+        BOOST_REQUIRE_EQUAL(gate.position(), v);
+    }
+}
+
+BOOST_AUTO_TEST_SUITE_END(/* ufw_core_lazy_min_gate */)
 
 } // namespace

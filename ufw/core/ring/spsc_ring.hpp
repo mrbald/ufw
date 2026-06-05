@@ -18,6 +18,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace ufw::core {
 
@@ -38,6 +39,18 @@ public:
     {
         auto const pos = producer_.claim(1);
         return pos ? storage_.slot(*pos) : nullptr;
+    }
+    // Batch producer: claim a contiguous run of up to `n` slots — clamped to the
+    // ring end so the span never straddles the wrap, and to free space. Fill the
+    // span, then commit() ONCE to publish the whole batch, amortizing the cursor
+    // release store over the run. May be shorter than `n`, or empty under back-
+    // pressure; the caller loops to claim the tail (which starts at the wrap).
+    [[nodiscard]] std::span<T> try_claim_batch(std::uint64_t n) noexcept
+    {
+        std::uint64_t const pos = producer_.claimed();
+        std::uint64_t const to_wrap = storage_.capacity() - (pos & storage_.mask());
+        std::uint64_t const granted = producer_.claim_upto(n < to_wrap ? n : to_wrap);
+        return {storage_.slot(pos), granted};
     }
     void commit() noexcept { producer_.publish(); }
     bool try_push(T const& value) noexcept
@@ -66,9 +79,26 @@ public:
         }
         return storage_.slot(read_pos_);
     }
-    void release() noexcept
+    // Batch consumer: peek a contiguous run of all currently-available records
+    // [read_pos_, producer), clamped to the ring end. Process them, then release(k)
+    // ONCE to publish progress, amortizing the cursor release store over the run.
+    [[nodiscard]] std::span<T const> peek_batch() noexcept
     {
-        ++read_pos_;
+        if (read_pos_ == cached_producer_)
+        {
+            cached_producer_ = producer_pos_.load(std::memory_order_acquire);
+            if (read_pos_ == cached_producer_)
+            {
+                return {};
+            }
+        }
+        std::uint64_t const avail = cached_producer_ - read_pos_;
+        std::uint64_t const to_wrap = storage_.capacity() - (read_pos_ & storage_.mask());
+        return {storage_.slot(read_pos_), avail < to_wrap ? avail : to_wrap};
+    }
+    void release(std::uint64_t n = 1) noexcept
+    {
+        read_pos_ += n;
         consumer_completed_.store(read_pos_, std::memory_order_release);
     }
     bool try_pop(T& out) noexcept
