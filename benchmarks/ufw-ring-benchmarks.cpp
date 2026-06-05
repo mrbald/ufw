@@ -19,6 +19,14 @@
 #include <thread>
 #include <vector>
 
+#if defined(__linux__)
+#  include <pthread.h>
+#  include <sched.h>
+#elif defined(__APPLE__)
+#  include <pthread.h>
+#  include <sys/qos.h>
+#endif
+
 namespace {
 
 using ufw::core::multicast_feed;
@@ -27,6 +35,24 @@ using ufw::core::spsc_ring;
 using ufw::core::multicast_gate;
 using ufw::core::lazy_min_gate;
 using ufw::core::padded_sequence;
+
+// Best-effort thread placement for steadier benchmark numbers. On Linux this is a
+// HARD pin to logical CPU `core` (deterministic). On macOS there is NO per-core
+// affinity API — Apple Silicon ignores THREAD_AFFINITY_POLICY entirely — so the best
+// we can do is bias onto the performance (P) cores via QoS, keeping bench threads
+// off the efficiency (E) cores; `core` is ignored there. For truly deterministic
+// per-core pinning, run the suite on Linux.
+void pin_thread([[maybe_unused]] unsigned core) noexcept
+{
+#if defined(__linux__)
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(core, &set);
+    pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
+#elif defined(__APPLE__)
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
+}
 
 // Uncontended fast-path cost: one thread pushing then popping (claim/commit +
 // peek/release overhead, no cross-core traffic).
@@ -48,10 +74,12 @@ BENCHMARK(ring_push_pop);
 // SPSC throughput: a producer thread feeds; the benchmark loop consumes.
 void ring_spsc_throughput(benchmark::State& state)
 {
+    pin_thread(0);
     spsc_ring<std::uint64_t> ring{1 << 16};
     std::atomic<bool> stop{false};
     std::thread producer([&ring, &stop]
     {
+        pin_thread(1);
         std::uint64_t v = 0;
         while (!stop.load(std::memory_order_relaxed))
         {
@@ -84,11 +112,13 @@ BENCHMARK(ring_spsc_throughput)->UseRealTime();
 // scalar, one-publish-per-item path, ~1.9 ns/item).
 void ring_spsc_batch_throughput(benchmark::State& state)
 {
+    pin_thread(0);
     auto const batch = static_cast<std::uint64_t>(state.range(0));
     spsc_ring<std::uint64_t> ring{1 << 16};
     std::atomic<bool> stop{false};
     std::thread producer([&ring, &stop, batch]
     {
+        pin_thread(1);
         std::uint64_t v = 0;
         while (!stop.load(std::memory_order_relaxed))
         {
@@ -137,12 +167,14 @@ BENCHMARK(ring_spsc_batch_throughput)->Arg(1)->Arg(8)->Arg(64)->Arg(256)->UseRea
 // opposed pub-subs). One iteration = one request + one reply.
 void ring_pingpong_latency(benchmark::State& state)
 {
+    pin_thread(0);
     constexpr std::uint64_t stop_token = ~std::uint64_t{0};
     spsc_ring<std::uint64_t> a2b{1024};
     spsc_ring<std::uint64_t> b2a{1024};
 
     std::thread responder([&a2b, &b2a]
     {
+        pin_thread(1);
         std::uint64_t v = 0;
         for (;;)
         {
@@ -176,6 +208,7 @@ BENCHMARK(ring_pingpong_latency)->UseRealTime();
 // so it should approach ring_spsc_throughput; /4 adds the fan-out + slowest-of-N.
 void ring_channel_throughput(benchmark::State& state)
 {
+    pin_thread(0);
     auto const subscribers = static_cast<std::size_t>(state.range(0));
     multicast_channel<std::uint64_t> ring{1 << 16, subscribers};
     std::atomic<bool> stop{false};
@@ -183,8 +216,9 @@ void ring_channel_throughput(benchmark::State& state)
     std::vector<std::thread> readers;
     for (std::size_t s = 0; s < subscribers; ++s)
     {
-        readers.emplace_back([&ring, &stop]
+        readers.emplace_back([&ring, &stop, s]
         {
+            pin_thread(static_cast<unsigned>(2 + s));
             auto sub = ring.subscribe();
             std::uint64_t v = 0;
             while (!stop.load(std::memory_order_relaxed))
@@ -220,6 +254,7 @@ BENCHMARK(ring_channel_throughput)->Arg(1)->Arg(4)->UseRealTime();
 // gated, so this mostly isolates the producer's commit amortization.
 void ring_channel_batch_throughput(benchmark::State& state)
 {
+    pin_thread(0);
     auto const subscribers = static_cast<std::size_t>(state.range(0));
     multicast_channel<std::uint64_t> ring{1 << 16, subscribers};
     std::atomic<bool> stop{false};
@@ -227,8 +262,9 @@ void ring_channel_batch_throughput(benchmark::State& state)
     std::vector<std::thread> readers;
     for (std::size_t s = 0; s < subscribers; ++s)
     {
-        readers.emplace_back([&ring, &stop]
+        readers.emplace_back([&ring, &stop, s]
         {
+            pin_thread(static_cast<unsigned>(2 + s));
             auto sub = ring.subscribe();
             while (!stop.load(std::memory_order_relaxed))
             {
@@ -284,11 +320,13 @@ BENCHMARK(ring_channel_batch_throughput)->Arg(1)->Arg(4)->UseRealTime();
 // lockstep fan-out measured above.
 void ring_channel_drain(benchmark::State& state)
 {
+    pin_thread(0);
     multicast_channel<std::uint64_t> ring{1 << 16, 1};
     auto sub = ring.subscribe();
     std::atomic<bool> stop{false};
     std::thread producer([&ring, &stop]
     {
+        pin_thread(1);
         std::uint64_t v = 0;
         while (!stop.load(std::memory_order_relaxed))
         {
@@ -319,11 +357,13 @@ BENCHMARK(ring_channel_drain)->UseRealTime();
 // it once. Shows the multicast batch path vs the scalar one-at-a-time drain.
 void ring_channel_batch_drain(benchmark::State& state)
 {
+    pin_thread(0);
     multicast_channel<std::uint64_t> ring{1 << 16, 1};
     auto sub = ring.subscribe();
     std::atomic<bool> stop{false};
     std::thread producer([&ring, &stop]
     {
+        pin_thread(1);
         std::uint64_t v = 0;
         while (!stop.load(std::memory_order_relaxed))
         {
@@ -376,6 +416,7 @@ BENCHMARK(ring_channel_batch_drain)->UseRealTime();
 // drags down as subscribers are added).
 void ring_feed_push(benchmark::State& state)
 {
+    pin_thread(0);
     auto const subscribers = static_cast<std::size_t>(state.range(0));
     multicast_feed<std::uint64_t> buf{1 << 16};
     std::atomic<bool> stop{false};
@@ -383,8 +424,9 @@ void ring_feed_push(benchmark::State& state)
     std::vector<std::thread> readers;
     for (std::size_t s = 0; s < subscribers; ++s)
     {
-        readers.emplace_back([&buf, &stop]
+        readers.emplace_back([&buf, &stop, s]
         {
+            pin_thread(static_cast<unsigned>(2 + s));
             auto sub = buf.subscribe();
             std::uint64_t out = 0;
             std::uint64_t skipped = 0;
@@ -470,40 +512,40 @@ BENCHMARK_TEMPLATE(ring_gate_lockstep, lazy_min_gate)->Arg(2)->Arg(4)->Arg(8)->A
 // platform: Darwin arm64 | build: build/Release | filter: ring_
 // Benchmark                                          Time             CPU   Iterations UserCounters...
 // ----------------------------------------------------------------------------------------------------
-// ring_push_pop                                   1.89 ns         1.89 ns    352298749 items_per_second=529.47M/s
-// ring_spsc_throughput/real_time                  1.95 ns         1.95 ns    358071986 items_per_second=513.068M/s
-// ring_spsc_batch_throughput/1/real_time          18.6 ns         18.6 ns     38329587 items_per_second=53.6744M/s
-// ring_spsc_batch_throughput/8/real_time          4.13 ns         4.13 ns    180710975 items_per_second=241.886M/s
-// ring_spsc_batch_throughput/64/real_time        0.704 ns        0.704 ns   1026266936 items_per_second=1.4196G/s
-// ring_spsc_batch_throughput/256/real_time       0.400 ns        0.400 ns   1731901452 items_per_second=2.50025G/s
-// ring_pingpong_latency/real_time                 82.7 ns         82.7 ns      8160910 items_per_second=12.0877M/s
-// ring_channel_throughput/1/real_time             19.5 ns         19.5 ns     36402474 items_per_second=51.2272M/s
-// ring_channel_throughput/4/real_time             36.2 ns         36.2 ns     19691320 items_per_second=27.6349M/s
-// ring_channel_batch_throughput/1/real_time      0.718 ns        0.718 ns    980666276 items_per_second=1.39211G/s
-// ring_channel_batch_throughput/4/real_time       1.11 ns         1.11 ns    635155557 items_per_second=904.353M/s
-// ring_channel_drain/real_time                    9.65 ns         9.65 ns     83496101 items_per_second=103.587M/s
-// ring_channel_batch_drain/real_time             0.409 ns        0.409 ns   1719915281 items_per_second=2.44656G/s
-// ring_feed_push/0/real_time                      1.80 ns         1.80 ns    382737448 items_per_second=556.016M/s
-// ring_feed_push/1/real_time                      3.99 ns         3.98 ns    173058340 items_per_second=250.932M/s
-// ring_feed_push/4/real_time                      4.96 ns         4.96 ns    141158061 items_per_second=201.486M/s
-// ring_gate_laggard<multicast_gate>/2            0.647 ns        0.647 ns   1043312368 items_per_second=1.54582G/s
-// ring_gate_laggard<multicast_gate>/4             1.60 ns         1.60 ns    435042013 items_per_second=624.95M/s
-// ring_gate_laggard<multicast_gate>/8             2.76 ns         2.76 ns    253432196 items_per_second=362.781M/s
-// ring_gate_laggard<multicast_gate>/16            5.86 ns         5.86 ns    113441156 items_per_second=170.655M/s
-// ring_gate_laggard<multicast_gate>/32            12.9 ns         12.9 ns     54070755 items_per_second=77.2346M/s
-// ring_gate_laggard<lazy_min_gate>/2             0.322 ns        0.322 ns   2193621575 items_per_second=3.10438G/s
-// ring_gate_laggard<lazy_min_gate>/4             0.322 ns        0.322 ns   2210614740 items_per_second=3.10515G/s
-// ring_gate_laggard<lazy_min_gate>/8             0.321 ns        0.321 ns   2154708037 items_per_second=3.11533G/s
-// ring_gate_laggard<lazy_min_gate>/16            0.404 ns        0.404 ns   2163044083 items_per_second=2.47412G/s
-// ring_gate_laggard<lazy_min_gate>/32            0.325 ns        0.325 ns   2188512187 items_per_second=3.08038G/s
-// ring_gate_lockstep<multicast_gate>/2           0.804 ns        0.804 ns    872894143 items_per_second=1.2443G/s
-// ring_gate_lockstep<multicast_gate>/4            2.84 ns         2.84 ns    232101647 items_per_second=351.898M/s
-// ring_gate_lockstep<multicast_gate>/8            4.85 ns         4.85 ns    147424598 items_per_second=206.155M/s
-// ring_gate_lockstep<multicast_gate>/16           8.92 ns         8.92 ns     77763089 items_per_second=112.051M/s
-// ring_gate_lockstep<multicast_gate>/32           19.0 ns         19.0 ns     36873739 items_per_second=52.6573M/s
-// ring_gate_lockstep<lazy_min_gate>/2             1.43 ns         1.43 ns    490735613 items_per_second=701.21M/s
-// ring_gate_lockstep<lazy_min_gate>/4             3.43 ns         3.43 ns    204681355 items_per_second=291.22M/s
-// ring_gate_lockstep<lazy_min_gate>/8             5.66 ns         5.66 ns    118974777 items_per_second=176.697M/s
-// ring_gate_lockstep<lazy_min_gate>/16            12.1 ns         12.1 ns     58072009 items_per_second=82.9613M/s
-// ring_gate_lockstep<lazy_min_gate>/32            26.7 ns         26.7 ns     26151507 items_per_second=37.4762M/s
+// ring_push_pop                                   1.82 ns         1.82 ns    359802828 items_per_second=548.743M/s
+// ring_spsc_throughput/real_time                  1.89 ns         1.89 ns    453612577 items_per_second=527.775M/s
+// ring_spsc_batch_throughput/1/real_time          19.5 ns         19.5 ns     37565824 items_per_second=51.3898M/s
+// ring_spsc_batch_throughput/8/real_time          3.78 ns         3.78 ns    180865740 items_per_second=264.73M/s
+// ring_spsc_batch_throughput/64/real_time        0.576 ns        0.576 ns   1000000000 items_per_second=1.73684G/s
+// ring_spsc_batch_throughput/256/real_time       0.403 ns        0.403 ns   1709108164 items_per_second=2.4797G/s
+// ring_pingpong_latency/real_time                 83.8 ns         83.8 ns      8429385 items_per_second=11.933M/s
+// ring_channel_throughput/1/real_time             18.8 ns         18.8 ns     37412048 items_per_second=53.2103M/s
+// ring_channel_throughput/4/real_time             34.3 ns         34.3 ns     20254637 items_per_second=29.1664M/s
+// ring_channel_batch_throughput/1/real_time      0.720 ns        0.720 ns    970932150 items_per_second=1.38794G/s
+// ring_channel_batch_throughput/4/real_time       1.11 ns         1.11 ns    624282354 items_per_second=903.405M/s
+// ring_channel_drain/real_time                    7.89 ns         7.89 ns     77038953 items_per_second=126.705M/s
+// ring_channel_batch_drain/real_time             0.399 ns        0.399 ns   1765176845 items_per_second=2.5035G/s
+// ring_feed_push/0/real_time                      1.79 ns         1.79 ns    390495163 items_per_second=558.418M/s
+// ring_feed_push/1/real_time                      3.02 ns         3.02 ns    222186278 items_per_second=331.372M/s
+// ring_feed_push/4/real_time                      4.92 ns         4.92 ns    146291574 items_per_second=203.062M/s
+// ring_gate_laggard<multicast_gate>/2            0.648 ns        0.648 ns   1051035270 items_per_second=1.54431G/s
+// ring_gate_laggard<multicast_gate>/4             1.58 ns         1.58 ns    440853240 items_per_second=634.014M/s
+// ring_gate_laggard<multicast_gate>/8             2.76 ns         2.76 ns    259963085 items_per_second=362.335M/s
+// ring_gate_laggard<multicast_gate>/16            5.89 ns         5.89 ns    120704223 items_per_second=169.731M/s
+// ring_gate_laggard<multicast_gate>/32            12.9 ns         12.9 ns     53971950 items_per_second=77.5952M/s
+// ring_gate_laggard<lazy_min_gate>/2             0.324 ns        0.324 ns   2165071215 items_per_second=3.08968G/s
+// ring_gate_laggard<lazy_min_gate>/4             0.319 ns        0.319 ns   2180033386 items_per_second=3.13691G/s
+// ring_gate_laggard<lazy_min_gate>/8             0.321 ns        0.321 ns   2165560169 items_per_second=3.11628G/s
+// ring_gate_laggard<lazy_min_gate>/16            0.387 ns        0.387 ns   2180597047 items_per_second=2.58287G/s
+// ring_gate_laggard<lazy_min_gate>/32            0.354 ns        0.354 ns   2154800896 items_per_second=2.82838G/s
+// ring_gate_lockstep<multicast_gate>/2           0.808 ns        0.808 ns    870289558 items_per_second=1.23768G/s
+// ring_gate_lockstep<multicast_gate>/4            2.79 ns         2.79 ns    249506334 items_per_second=358.563M/s
+// ring_gate_lockstep<multicast_gate>/8            5.05 ns         5.05 ns    146383797 items_per_second=198.025M/s
+// ring_gate_lockstep<multicast_gate>/16           8.86 ns         8.86 ns     79157761 items_per_second=112.85M/s
+// ring_gate_lockstep<multicast_gate>/32           19.1 ns         19.1 ns     36876070 items_per_second=52.4569M/s
+// ring_gate_lockstep<lazy_min_gate>/2             1.38 ns         1.38 ns    507393447 items_per_second=725.855M/s
+// ring_gate_lockstep<lazy_min_gate>/4             3.33 ns         3.32 ns    215793627 items_per_second=300.762M/s
+// ring_gate_lockstep<lazy_min_gate>/8             5.36 ns         5.36 ns    129335033 items_per_second=186.705M/s
+// ring_gate_lockstep<lazy_min_gate>/16            11.9 ns         11.9 ns     60331305 items_per_second=84.1571M/s
+// ring_gate_lockstep<lazy_min_gate>/32            26.3 ns         26.3 ns     26769871 items_per_second=38.0384M/s
 // <<<END BENCHMARK RESULTS>>>
