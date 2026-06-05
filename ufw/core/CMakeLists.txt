@@ -10,7 +10,9 @@ add_library(ufw_core SHARED
     ring/slots.hpp
     ring/spsc_ring.hpp
     ring/multicast_channel.hpp
-    ring/multicast_feed.hpp)
+    ring/multicast_feed.hpp
+    sys/affinity.cpp
+    sys/affinity.hpp)
 
 target_compile_features(ufw_core PUBLIC cxx_std_23)
 
@@ -28,8 +30,8 @@ install(TARGETS ufw_core EXPORT UfwTargets
     LIBRARY DESTINATION "${INSTALL_LIB_DIR}"
     COMPONENT shlib)
 
-# Header-tree install preserves the mem/ , ring/ subdirs (PUBLIC_HEADER would flatten them).
-install(DIRECTORY mem ring
+# Header-tree install preserves the mem/ , ring/ , sys/ subdirs (PUBLIC_HEADER would flatten them).
+install(DIRECTORY mem ring sys
     DESTINATION "${INSTALL_INCLUDE_DIR}/ufw/core"
     COMPONENT dev
     FILES_MATCHING PATTERN "*.hpp")

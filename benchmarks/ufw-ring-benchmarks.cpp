@@ -11,6 +11,7 @@
 #include <ufw/core/ring/multicast_channel.hpp>
 #include <ufw/core/ring/sequencer.hpp>
 #include <ufw/core/ring/spsc_ring.hpp>
+#include <ufw/core/sys/affinity.hpp>
 
 #include <atomic>
 #include <cstddef>
@@ -18,14 +19,6 @@
 #include <span>
 #include <thread>
 #include <vector>
-
-#if defined(__linux__)
-#  include <pthread.h>
-#  include <sched.h>
-#elif defined(__APPLE__)
-#  include <pthread.h>
-#  include <sys/qos.h>
-#endif
 
 namespace {
 
@@ -35,24 +28,7 @@ using ufw::core::spsc_ring;
 using ufw::core::multicast_gate;
 using ufw::core::lazy_min_gate;
 using ufw::core::padded_sequence;
-
-// Best-effort thread placement for steadier benchmark numbers. On Linux this is a
-// HARD pin to logical CPU `core` (deterministic). On macOS there is NO per-core
-// affinity API — Apple Silicon ignores THREAD_AFFINITY_POLICY entirely — so the best
-// we can do is bias onto the performance (P) cores via QoS, keeping bench threads
-// off the efficiency (E) cores; `core` is ignored there. For truly deterministic
-// per-core pinning, run the suite on Linux.
-void pin_thread([[maybe_unused]] unsigned core) noexcept
-{
-#if defined(__linux__)
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    CPU_SET(core, &set);
-    pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
-#elif defined(__APPLE__)
-    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
-#endif
-}
+using ufw::core::pin_thread;
 
 // Uncontended fast-path cost: one thread pushing then popping (claim/commit +
 // peek/release overhead, no cross-core traffic).
