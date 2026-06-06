@@ -113,6 +113,13 @@ struct method_sig<void (T::*)(Args...) noexcept> : method_sig<void (T::*)(Args..
 
 } // namespace detail
 
+// Public deduction aliases (the app-level inbox_ref builds on these; detail:: stays private).
+template <auto Method>
+using method_owner_t = typename detail::method_sig<decltype(Method)>::owner_t;
+
+template <auto Method>
+using inbox_handle_for = typename detail::method_sig<decltype(Method)>::handle_t;
+
 // Same-worker handle: every call is a direct method call on the caller's thread.
 template <auto Method>
 [[nodiscard]] auto make_direct_handle(

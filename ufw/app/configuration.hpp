@@ -26,16 +26,27 @@ namespace ufw {
 
 using config_t = YAML::Node;
 
+// One worker of the dispatch fabric (see ufw/core/exec/): a pinned thread running
+// a run-loop flavour. `pin_core` ~0U means "do not pin".
+struct worker_config
+{
+    unsigned id = 0;
+    std::string loop = "spinning"; // spinning | blocking
+    unsigned pin_core = ~0U;
+};
+
 struct entity_config
 {
     std::string name;
     std::string loader_ref;
+    unsigned worker = 0; // which worker owns this actor (default: worker 0)
 
     config_t config;
 };
 
 struct application_config
 {
+    std::vector<worker_config> workers; // optional; absent => no pool, today's single-threaded run loop
     std::vector<entity_config> entities;
 };
 
@@ -52,12 +63,40 @@ namespace CFG_NAMESPACE
 
 
 template <>
+struct convert<ufw::worker_config> {
+    static Node encode(const ufw::worker_config& rhs) {
+        Node node;
+
+        CFG_ENCODE(id);
+        CFG_ENCODE(loop);
+        if (rhs.pin_core != ~0U) { node["pin_core"] = rhs.pin_core; }
+
+        return node;
+    }
+
+    static bool decode(const Node& node, ufw::worker_config& rhs)
+    {
+        if (node.IsSequence())
+        {
+            return false;
+        }
+
+        CFG_DECODE(id);
+        CFG_DECODE_IF_SET(loop);
+        CFG_DECODE_IF_SET(pin_core);
+
+        return true;
+    }
+};
+
+template <>
 struct convert<ufw::entity_config> {
     static Node encode(const ufw::entity_config& rhs) {
         Node node;
 
         CFG_ENCODE(name);
         CFG_ENCODE_IF_SET(loader_ref);
+        if (rhs.worker != 0) { node["worker"] = rhs.worker; }
         CFG_ENCODE(config);
 
         return node;
@@ -72,6 +111,7 @@ struct convert<ufw::entity_config> {
 
         CFG_DECODE(name);
         CFG_DECODE_IF_SET(loader_ref);
+        CFG_DECODE_IF_SET(worker);
         CFG_DECODE_IF_SET(config);
 
         return true;
@@ -82,6 +122,7 @@ template <>
 struct convert<ufw::application_config> {
     static Node encode(const ufw::application_config& rhs) {
         Node node;
+        CFG_ENCODE_IF_SET(workers);
         CFG_ENCODE(entities);
         return node;
     }
@@ -92,6 +133,7 @@ struct convert<ufw::application_config> {
         {
             return false;
         }
+        CFG_DECODE_IF_SET(workers);
         CFG_DECODE(entities);
         return true;
     }

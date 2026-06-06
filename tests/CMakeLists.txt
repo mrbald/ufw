@@ -18,6 +18,7 @@ endif()
 
 target_link_libraries(ufw_app_tests
     PUBLIC
+        ufw_app
         ufw_topics
         ufw_core
         Boost::headers
@@ -34,6 +35,7 @@ target_compile_features(ufw_tests PRIVATE cxx_std_23)
 
 target_link_libraries(ufw_tests
     PRIVATE
+        ufw_app
         ufw_topics
         ufw_core
         Boost::headers

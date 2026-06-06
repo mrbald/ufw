@@ -22,6 +22,10 @@
 #include "entity.hpp"
 #include "lifecycle_participant.hpp"
 #include "loader.hpp"
+#include "asio_backstop.hpp"
+
+#include <ufw/core/exec/dispatch_matrix.hpp>
+#include <ufw/core/exec/worker.hpp>
 
 #include <boost/core/demangle.hpp>
 
@@ -139,6 +143,33 @@ struct application
     void shutdown();
 
     boost::asio::io_context& context() { return context_; }
+
+    // --- the dispatch fabric (opt-in via the `workers:` config block) ---
+    // Without the block none of this exists: worker_of() answers 0 for everyone,
+    // every inbox_ref resolves to a DIRECT handle, zero rings are built, and run()
+    // is byte-for-byte the classic single-threaded context_.run() path.
+    [[nodiscard]] bool has_worker_pool() const noexcept { return !workers_.empty(); }
+    [[nodiscard]] unsigned worker_of(resolved_entity_id rid) const noexcept
+    {
+        auto const it = entity_workers_.find(rid);
+        return it == entity_workers_.end() ? 0U : it->second;
+    }
+    [[nodiscard]] core::dispatch_matrix& matrix()
+    {
+        if (!matrix_)
+        {
+            throw fatal_error("no worker pool configured (workers: block absent)");
+        }
+        return *matrix_;
+    }
+    [[nodiscard]] core::worker& worker_at(unsigned idx)
+    {
+        if (idx >= workers_.size())
+        {
+            throw fatal_error("worker id out of range: " + std::to_string(idx));
+        }
+        return *workers_[idx];
+    }
 private:
     static entity_id id() { return "app"; } // for ENTITY_LOGGER macro to work
 
@@ -151,6 +182,8 @@ private:
     void stop_participants();
     void fini_participants();
 
+    void wire_workers(); // post-init: column drainers + backstops onto the workers
+
     boost::asio::io_context context_;
     boost::asio::signal_set terminal_signals_ {context_, SIGINT/*, SIGTERM*/};
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work_;
@@ -159,6 +192,13 @@ private:
     std::map<entity_id, size_t> entity_ids_;
 
     std::vector<std::reference_wrapper<lifecycle_participant>> lifecycle_participants_;
+
+    // --- the opt-in dispatch fabric (absent without a `workers:` block) ---
+    std::vector<std::unique_ptr<core::worker>> workers_;
+    std::unique_ptr<core::dispatch_matrix> matrix_;
+    std::unique_ptr<asio_backstop> backstop_;
+    std::vector<std::unique_ptr<core::column_drainer>> drainers_;
+    std::map<resolved_entity_id, unsigned> entity_workers_; // absent rid => worker 0
 
     ENTITY_LOGGER;
 

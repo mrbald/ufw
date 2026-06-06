@@ -169,18 +169,57 @@ void application::load(int argc, char const** argv)
 void application::run()
 {
     init_participants();
+    wire_workers(); // after init: every inbox has resolved, so all matrix cells exist
     install_signal_handler();
     schedule_up();
     start_participants();
 
     work_ = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
         context_.get_executor());
-    context_.run();
+    if (workers_.empty())
+    {
+        context_.run(); // zero-config path: byte-for-byte the classic behaviour
+    }
+    else
+    {
+        for (std::size_t i = 1; i < workers_.size(); ++i)
+        {
+            workers_[i]->launch();
+        }
+        workers_[0]->run_inline(); // the main thread IS worker 0 (it also services the io_context)
+        for (std::size_t i = 1; i < workers_.size(); ++i)
+        {
+            workers_[i]->request_stop();
+            workers_[i]->join();
+        }
+    }
 
     // init/start ran in declaration order; stop/fini run in reverse.
     std::ranges::reverse(lifecycle_participants_);
     stop_participants();
     fini_participants();
+}
+
+// Wire each worker its column drainer (the [*][me] inbound cells of the matrix)
+// and a backstop: worker 0 always gets the io_context backstop so signals, timers
+// and posts stay serviced whichever flavour it runs; blocking workers require one.
+void application::wire_workers()
+{
+    if (workers_.empty())
+    {
+        return;
+    }
+    LOG_INF("wiring {} workers", workers_.size());
+    for (auto& worker : workers_)
+    {
+        drainers_.push_back(std::make_unique<core::column_drainer>(
+            matrix_->inbound(worker->id()), worker->stats()));
+        worker->add_source(*drainers_.back());
+        if (worker->id() == 0 || worker->kind() == core::loop_kind::blocking)
+        {
+            worker->set_backstop(*backstop_);
+        }
+    }
 }
 
 void application::init_participants()
@@ -250,13 +289,67 @@ void application::shutdown()
 {
     work_ = nullptr; // destroy the work guard so io_context::run() can return
     context_.stop();
+    for (auto& worker : workers_)
+    {
+        worker->request_stop(); // unparks blocking workers; spinners notice the flag
+    }
 }
+
+namespace
+{
+// Per-cell capacity of the dispatch matrix rings. One value for now; the depth /
+// slot-size sweeps in the dispatch benchmarks decide if it earns a config knob.
+constexpr std::size_t dispatch_ring_slots = 4096;
+} // namespace
 
 void application::load(application_config const& cfg)
 {
+    if (!cfg.workers.empty())
+    {
+        for (std::size_t i = 0; i < cfg.workers.size(); ++i)
+        {
+            auto const& worker_cfg = cfg.workers[i];
+            if (worker_cfg.id != i)
+            {
+                throw fatal_error("workers: ids must be dense and ordered 0..N-1");
+            }
+            core::loop_kind kind{};
+            if (worker_cfg.loop == "spinning")
+            {
+                kind = core::loop_kind::spinning;
+            }
+            else if (worker_cfg.loop == "blocking")
+            {
+                kind = core::loop_kind::blocking;
+            }
+            else
+            {
+                throw fatal_error("worker loop must be 'spinning' or 'blocking', got: " + worker_cfg.loop);
+            }
+            workers_.push_back(std::make_unique<core::worker>(worker_cfg.id, kind, worker_cfg.pin_core));
+        }
+        matrix_ = std::make_unique<core::dispatch_matrix>(
+            static_cast<unsigned>(workers_.size()), dispatch_ring_slots);
+        backstop_ = std::make_unique<asio_backstop>(context_);
+        LOG_INF("worker pool: {} workers", workers_.size());
+    }
+
     for (auto const& entity_cfg: cfg.entities)
     {
-        add(entity_cfg.name, entity_cfg.loader_ref, entity_cfg.config);
+        auto const rid = add(entity_cfg.name, entity_cfg.loader_ref, entity_cfg.config);
+        if (entity_cfg.worker != 0)
+        {
+            if (entity_cfg.worker >= workers_.size())
+            {
+                throw fatal_error("entity '" + entity_cfg.name + "' assigned to worker "
+                                  + std::to_string(entity_cfg.worker)
+                                  + (workers_.empty()
+                                         ? std::string{" but no workers: block is configured"}
+                                         : " but only " + std::to_string(workers_.size())
+                                               + " workers are configured"));
+            }
+            entity_workers_.emplace(rid, entity_cfg.worker);
+        }
     }
 
     entities_.shrink_to_fit();

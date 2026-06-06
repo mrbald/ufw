@@ -9,7 +9,9 @@ find_package(fmt REQUIRED)
 configure_file(version.hpp.in "${PROJECT_BINARY_DIR}/ufw/app/version.hpp" @ONLY)
 
 add_library(ufw_app SHARED
+    actor.hpp
     application.hpp
+    asio_backstop.hpp
     configuration.hpp
     entity.hpp
     exception_types.hpp
@@ -24,12 +26,13 @@ add_library(ufw_app SHARED
     logger.cpp)
 
 set_target_properties(ufw_app PROPERTIES
-    PUBLIC_HEADER "application.hpp;configuration.hpp;entity.hpp;exception_types.hpp;library.hpp;library_repository.hpp;lifecycle_participant.hpp;loader.hpp;logger.hpp;plugin.hpp;plugin_repository.hpp;${PROJECT_BINARY_DIR}/ufw/app/version.hpp")
+    PUBLIC_HEADER "actor.hpp;application.hpp;asio_backstop.hpp;configuration.hpp;entity.hpp;exception_types.hpp;library.hpp;library_repository.hpp;lifecycle_participant.hpp;loader.hpp;logger.hpp;plugin.hpp;plugin_repository.hpp;${PROJECT_BINARY_DIR}/ufw/app/version.hpp")
 
 target_compile_features(ufw_app PUBLIC cxx_std_23)
 
 target_link_libraries(ufw_app
     PUBLIC
+        ufw_core   # the dispatch fabric (exec/) + sys/ primitives in public headers
         yaml-cpp::yaml-cpp
         Boost::headers
         quill::quill
