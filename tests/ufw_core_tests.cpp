@@ -163,6 +163,41 @@ BOOST_AUTO_TEST_CASE(guard_pages_trap_overrun_and_underrun)
 }
 #endif // !UFW_TESTS_SANITIZED
 
+// File-backed regions: the telemetry handoff substrate. A writer creates and
+// sizes the file (MAP_SHARED), a reader opens it (size from the file), and the
+// bytes survive the writer's mapping — readable post-mortem.
+BOOST_AUTO_TEST_CASE(file_backed_region_round_trips_through_the_file)
+{
+    char const* const path = "ufw_core_mr_test.bin"; // cwd-local, removed below
+    std::size_t const ps = memory_region::page_size();
+    {
+        memory_region const writer{{.bytes = 100, .file = path}};
+        BOOST_REQUIRE_EQUAL(writer.size(), ps); // page-rounded, ftruncated
+        writer.data()[0] = std::byte{0xAB};
+        writer.data()[writer.size() - 1] = std::byte{0xCD};
+    } // writer unmapped; the FILE retains the bytes
+
+    {
+        memory_region const reader{{.protection = prot::read_only,
+                                    .file = path,
+                                    .open_mode = ufw::core::file_mode::open_existing}};
+        BOOST_REQUIRE_EQUAL(reader.size(), ps); // size came from the file
+        BOOST_TEST((reader.data()[0] == std::byte{0xAB}));
+        BOOST_TEST((reader.data()[reader.size() - 1] == std::byte{0xCD}));
+    }
+    BOOST_TEST(::unlink(path) == 0);
+}
+
+BOOST_AUTO_TEST_CASE(file_backed_region_rejects_bad_options)
+{
+    BOOST_CHECK_THROW((memory_region{{.bytes = 64, .guard_pages = true, .file = "x.bin"}}),
+                      std::invalid_argument); // guards would hole someone's file view
+    BOOST_CHECK_THROW((memory_region{{.file = "x.bin"}}),
+                      std::invalid_argument); // create_or_replace needs bytes > 0
+    BOOST_CHECK_THROW((memory_region{{.bytes = 64, .file = "definitely_missing_dir/x.bin"}}),
+                      std::system_error);     // unreachable path surfaces errno
+}
+
 BOOST_AUTO_TEST_SUITE_END(/* ufw_core_memory_region */)
 
 } // namespace

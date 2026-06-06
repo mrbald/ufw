@@ -19,6 +19,13 @@ enum class lock   : std::uint8_t { none, resident };            // mlock the pag
 enum class page   : std::uint8_t { base, huge_2mb, huge_1gb };  // best-effort hint; falls back to base
 enum class layout : std::uint8_t { plain, mirrored };           // mirrored = mapped twice contiguously (Stage 1C)
 
+// File-backed regions only (the telemetry substrate): how the file is obtained.
+enum class file_mode : std::uint8_t
+{
+    create_or_replace, // writer: open/create + ftruncate to the page-rounded `bytes`
+    open_existing,     // reader: size comes from the file (`bytes` must be 0)
+};
+
 struct region_options
 {
     std::size_t bytes = 0;                       // rounded up to a page multiple; 0 = empty region
@@ -27,6 +34,13 @@ struct region_options
     page   page_size   = page::base;
     layout mapping     = layout::plain;
     bool   guard_pages = false;                  // PROT_NONE pages bracketing the usable region
+
+    // Non-null => a FILE-BACKED MAP_SHARED mapping (cross-process visible, survives
+    // the process for post-mortem reads — the telemetry handoff boundary). File
+    // mappings exclude guard_pages and ignore the huge-page hint. The pointer only
+    // needs to outlive the constructor call.
+    char const* file = nullptr;
+    file_mode   open_mode = file_mode::create_or_replace;
 };
 
 // Move-only RAII over an mmap'd region. Throws std::system_error (with errno) on
@@ -34,7 +48,7 @@ struct region_options
 class memory_region
 {
 public:
-    explicit memory_region(region_options opts);
+    explicit memory_region(region_options const& opts);
     ~memory_region();
 
     memory_region(memory_region&& other) noexcept;
@@ -60,6 +74,7 @@ public:
     [[nodiscard]] static std::size_t page_size() noexcept;
 
 private:
+    void map_file(region_options const& opts);    // the file-backed constructor branch
     void reset() noexcept;                        // munmap the whole mapping
 
     std::byte*  data_ = nullptr;                  // usable region start (== base_ unless guarded)

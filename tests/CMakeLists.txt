@@ -7,7 +7,8 @@ add_library(ufw_app_tests OBJECT
         ufw_app_tests.cpp
         ufw_core_tests.cpp
         ufw_core_ring_tests.cpp
-        ufw_core_exec_tests.cpp)
+        ufw_core_exec_tests.cpp
+        ufw_core_metrics_tests.cpp)
 
 target_compile_features(ufw_app_tests PRIVATE cxx_std_23)
 

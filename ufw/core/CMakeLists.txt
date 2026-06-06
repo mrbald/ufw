@@ -21,7 +21,9 @@ add_library(ufw_core SHARED
     exec/inbox.hpp
     exec/dispatch_matrix.hpp
     exec/worker.cpp
-    exec/worker.hpp)
+    exec/worker.hpp
+    metrics/metrics.cpp
+    metrics/metrics.hpp)
 
 target_compile_features(ufw_core PUBLIC cxx_std_23)
 
@@ -39,8 +41,8 @@ install(TARGETS ufw_core EXPORT UfwTargets
     LIBRARY DESTINATION "${INSTALL_LIB_DIR}"
     COMPONENT shlib)
 
-# Header-tree install preserves the mem/ , ring/ , sys/ , exec/ subdirs (PUBLIC_HEADER would flatten them).
-install(DIRECTORY mem ring sys exec
+# Header-tree install preserves the mem/ , ring/ , sys/ , exec/ , metrics/ subdirs (PUBLIC_HEADER would flatten them).
+install(DIRECTORY mem ring sys exec metrics
     DESTINATION "${INSTALL_INCLUDE_DIR}/ufw/core"
     COMPONENT dev
     FILES_MATCHING PATTERN "*.hpp")

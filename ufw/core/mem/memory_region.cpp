@@ -10,7 +10,9 @@
 #include <system_error>
 #include <utility>
 
+#include <fcntl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 // Portable spelling of the anonymous-mapping flag.
@@ -50,11 +52,95 @@ std::size_t memory_region::page_size() noexcept
     return static_cast<std::size_t>(::sysconf(_SC_PAGESIZE));
 }
 
-memory_region::memory_region(region_options opts)
+// File-backed branch of the constructor: open/create the file, size it (writer)
+// or take its size (reader), and MAP_SHARED it. Guard pages are excluded (they
+// would punch PROT_NONE holes into someone's file view) and the huge-page hint is
+// ignored (regular file mappings use base pages).
+void memory_region::map_file(region_options const& opts)
+{
+    if (opts.guard_pages)
+    {
+        throw std::invalid_argument("memory_region: guard_pages is incompatible with a file mapping");
+    }
+    std::size_t const ps = page_size();
+
+    bool const writer = opts.open_mode == file_mode::create_or_replace;
+    if (writer && opts.bytes == 0)
+    {
+        throw std::invalid_argument("memory_region: create_or_replace requires bytes > 0");
+    }
+    if (!writer && opts.bytes != 0)
+    {
+        throw std::invalid_argument("memory_region: open_existing takes its size from the file (bytes must be 0)");
+    }
+
+    int oflags = opts.protection == prot::read_only ? O_RDONLY : O_RDWR;
+    if (writer)
+    {
+        oflags |= O_CREAT;
+    }
+    int const fd = ::open(opts.file, oflags, 0644); // NOLINT(cppcoreguidelines-pro-type-vararg)
+    if (fd < 0)
+    {
+        throw_errno("memory_region: open");
+    }
+
+    std::size_t usable = 0;
+    if (writer)
+    {
+        usable = round_up(opts.bytes, ps);
+        if (::ftruncate(fd, static_cast<off_t>(usable)) != 0)
+        {
+            int const err = errno;
+            ::close(fd);
+            throw std::system_error(err, std::generic_category(), "memory_region: ftruncate");
+        }
+    }
+    else
+    {
+        struct stat st{};
+        if (::fstat(fd, &st) != 0 || st.st_size <= 0)
+        {
+            int const err = errno;
+            ::close(fd);
+            throw std::system_error(err, std::generic_category(), "memory_region: fstat/empty file");
+        }
+        usable = static_cast<std::size_t>(st.st_size);
+    }
+
+    void* base = ::mmap(nullptr, round_up(usable, ps), to_posix(opts.protection), MAP_SHARED, fd, 0);
+    ::close(fd); // the mapping holds its own reference
+    if (base == MAP_FAILED)
+    {
+        throw_errno("memory_region: mmap (file)");
+    }
+
+    base_ = static_cast<std::byte*>(base);
+    span_ = round_up(usable, ps);
+    data_ = base_;
+    size_ = usable;
+
+    if (opts.locking == lock::resident)
+    {
+        if (::mlock(data_, size_) != 0)
+        {
+            int const err = errno;
+            reset();
+            throw std::system_error(err, std::generic_category(), "memory_region: mlock");
+        }
+    }
+}
+
+memory_region::memory_region(region_options const& opts)
 {
     if (opts.mapping == layout::mirrored)
     {
         throw std::runtime_error("memory_region: mirrored layout is not implemented until Stage 1C");
+    }
+    if (opts.file != nullptr)
+    {
+        map_file(opts);
+        return;
     }
     if (opts.bytes == 0)
     {
