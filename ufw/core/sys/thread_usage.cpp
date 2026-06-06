@@ -86,6 +86,9 @@ process_usage_sample sample_process_usage() noexcept
 #ifdef __APPLE__
     auto const maxrss_bytes = static_cast<std::uint64_t>(usage.ru_maxrss);
 #else
+    // glibc wraps rusage's long fields in anonymous unions (32/64-bit compat) —
+    // this is the kernel ABI struct, not a union of ours to variant-ify.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-union-access)
     auto const maxrss_bytes = static_cast<std::uint64_t>(usage.ru_maxrss) * 1024;
 #endif
     return {.maxrss_bytes = maxrss_bytes,

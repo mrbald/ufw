@@ -17,8 +17,11 @@ jobs:
           - { os: ubuntu-24.04, build_type: Release, cc: gcc-13,    cxx: g++-13 }
           - { os: ubuntu-24.04, build_type: Debug,   cc: clang-18,  cxx: clang++-18 }
           - { os: ubuntu-24.04, build_type: Release, cc: clang-18,  cxx: clang++-18 }
-          - { os: macos-14,     build_type: Debug }
-          - { os: macos-14,     build_type: Release }
+          # macos-15+: macos-14's Xcode 15 libc++ predates std::atomic_ref (the
+          # telemetry substrate's writer primitive; upstream libc++ shipped it in
+          # LLVM 19), caught by CI 2026-06.
+          - { os: macos-15,     build_type: Debug }
+          - { os: macos-15,     build_type: Release }
     env:
       CC: ${{ matrix.cc }}
       CXX: ${{ matrix.cxx }}
