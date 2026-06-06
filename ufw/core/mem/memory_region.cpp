@@ -4,6 +4,8 @@
  */
 #include "memory_region.hpp"
 
+#include <ufw/core/sys/compiler.hpp>
+
 #include <cerrno>
 #include <cstdint>
 #include <stdexcept>
@@ -35,9 +37,18 @@ int to_posix(prot p) noexcept
     return PROT_NONE; // unreachable (all enumerators handled); silences -Wreturn-type
 }
 
-[[noreturn]] void throw_errno(char const* what)
+// Hoisted [[noreturn]] cold throw-helpers (sys/compiler.hpp has the policy): the
+// call-site branches become statically unlikely, and the throw machinery stays out
+// of the callers' inlining budgets and out of the warm text.
+[[noreturn]] UFW_COLD UFW_NOINLINE void throw_errno(char const* what)
 {
     throw std::system_error(errno, std::generic_category(), what);
+}
+
+// For sites that must clean up first (close/munmap) and throw the SAVED errno.
+[[noreturn]] UFW_COLD UFW_NOINLINE void throw_errno(int err, char const* what)
+{
+    throw std::system_error(err, std::generic_category(), what);
 }
 
 std::size_t round_up(std::size_t n, std::size_t multiple) noexcept
@@ -93,7 +104,7 @@ void memory_region::map_file(region_options const& opts)
         {
             int const err = errno;
             ::close(fd);
-            throw std::system_error(err, std::generic_category(), "memory_region: ftruncate");
+            throw_errno(err, "memory_region: ftruncate");
         }
     }
     else
@@ -103,7 +114,7 @@ void memory_region::map_file(region_options const& opts)
         {
             int const err = errno;
             ::close(fd);
-            throw std::system_error(err, std::generic_category(), "memory_region: fstat/empty file");
+            throw_errno(err, "memory_region: fstat/empty file");
         }
         usable = static_cast<std::size_t>(st.st_size);
     }
@@ -126,7 +137,7 @@ void memory_region::map_file(region_options const& opts)
         {
             int const err = errno;
             reset();
-            throw std::system_error(err, std::generic_category(), "memory_region: mlock");
+            throw_errno(err, "memory_region: mlock");
         }
     }
 }
@@ -190,7 +201,7 @@ memory_region::memory_region(region_options const& opts)
         {
             int const err = errno;
             reset();
-            throw std::system_error(err, std::generic_category(), "memory_region: guard mprotect");
+            throw_errno(err, "memory_region: guard mprotect");
         }
     }
 
@@ -200,7 +211,7 @@ memory_region::memory_region(region_options const& opts)
         {
             int const err = errno;
             reset();
-            throw std::system_error(err, std::generic_category(), "memory_region: mlock");
+            throw_errno(err, "memory_region: mlock");
         }
     }
 }

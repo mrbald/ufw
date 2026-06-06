@@ -13,6 +13,7 @@ add_library(ufw_core SHARED
     ring/multicast_feed.hpp
     sys/affinity.cpp
     sys/affinity.hpp
+    sys/compiler.hpp
     sys/cpu.hpp
     sys/thread_usage.cpp
     sys/thread_usage.hpp
