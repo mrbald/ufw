@@ -7,6 +7,7 @@ if(benchmark_FOUND)
             ufw-sandbox-benchmarks.cpp
             ufw-mem-benchmarks.cpp
             ufw-ring-benchmarks.cpp
+            ufw-dispatch-benchmarks.cpp
             main.cpp)
 
     target_compile_features(ufw_benchmarks PRIVATE cxx_std_23)

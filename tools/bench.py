@@ -30,8 +30,9 @@ END = "// <<<END BENCHMARK RESULTS>>>"
 
 # domain -> (benchmark name filter, source file to annotate)
 DOMAINS = {
-    "mem":  ("mem_",  "benchmarks/ufw-mem-benchmarks.cpp"),
-    "ring": ("ring_", "benchmarks/ufw-ring-benchmarks.cpp"),
+    "mem":      ("mem_",      "benchmarks/ufw-mem-benchmarks.cpp"),
+    "ring":     ("ring_",     "benchmarks/ufw-ring-benchmarks.cpp"),
+    "dispatch": ("dispatch_", "benchmarks/ufw-dispatch-benchmarks.cpp"),
 }
 
 
