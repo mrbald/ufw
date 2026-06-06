@@ -169,10 +169,15 @@ void application::load(int argc, char const** argv)
 void application::run()
 {
     init_participants();
-    wire_workers(); // after init: every inbox has resolved, so all matrix cells exist
+    wire_workers();   // after init: every inbox has resolved, so all matrix cells exist
+    wire_telemetry(); // after wire_workers: the workers exist to be mirrored
     install_signal_handler();
     schedule_up();
     start_participants();
+    if (sampler_)
+    {
+        sampler_->start();
+    }
 
     work_ = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
         context_.get_executor());
@@ -193,11 +198,71 @@ void application::run()
             workers_[i]->join();
         }
     }
+    if (sampler_)
+    {
+        sampler_->stop(); // one final tick already happened; stats are now stable
+    }
 
     // init/start ran in declaration order; stop/fini run in reverse.
     std::ranges::reverse(lifecycle_participants_);
     stop_participants();
     fini_participants();
+}
+
+// Sampler tasks — the WARM telemetry tier: mirror each worker's stats (cumulative
+// counters; utilization is the per-interval delta) and its thread CPU, plus the
+// process-level rusage. The hot tier (the drainers' latency series) was wired in
+// wire_workers; the cold tier (collection/aggregation/charting) lives out of
+// process behind the mmap file.
+void application::wire_telemetry()
+{
+    if (!metrics_ || !sampler_)
+    {
+        return;
+    }
+    for (auto& worker_ptr : workers_)
+    {
+        auto* worker = worker_ptr.get();
+        auto const label = std::to_string(worker->id());
+        auto const iterations  = metrics_->make_counter("ufw_worker_iterations_total{worker=\"" + label + "\"}");
+        auto const useful      = metrics_->make_counter("ufw_worker_useful_iterations_total{worker=\"" + label + "\"}");
+        auto const dispatched  = metrics_->make_counter("ufw_worker_dispatched_total{worker=\"" + label + "\"}");
+        auto const cpu_total   = metrics_->make_counter("ufw_worker_cpu_ns_total{worker=\"" + label + "\"}");
+        auto const cpu_system  = metrics_->make_counter("ufw_worker_cpu_system_ns_total{worker=\"" + label + "\"}");
+        auto const utilization = metrics_->make_value_f64("ufw_worker_utilization_pct{worker=\"" + label + "\"}");
+        sampler_->add_task(
+            [worker, iterations, useful, dispatched, cpu_total, cpu_system, utilization,
+             last_iterations = std::uint64_t{0}, last_useful = std::uint64_t{0}]() mutable
+            {
+                auto const it = worker->stats().iterations.load(std::memory_order_relaxed);
+                auto const us = worker->stats().useful_iters.load(std::memory_order_relaxed);
+                iterations.set(it);
+                useful.set(us);
+                dispatched.set(worker->stats().dispatched.load(std::memory_order_relaxed));
+                auto const cpu = core::sample_thread_cpu(worker->cpu_handle());
+                cpu_total.set(cpu.total_ns);
+                cpu_system.set(cpu.system_ns);
+                auto const delta_iterations = it - last_iterations;
+                auto const delta_useful     = us - last_useful;
+                utilization.set(delta_iterations == 0
+                                    ? 0.0
+                                    : 100.0 * static_cast<double>(delta_useful)
+                                          / static_cast<double>(delta_iterations));
+                last_iterations = it;
+                last_useful     = us;
+            });
+    }
+
+    auto const maxrss     = metrics_->make_value_i64("ufw_process_maxrss_bytes");
+    auto const cpu_user   = metrics_->make_counter("ufw_process_cpu_user_ns_total");
+    auto const cpu_system = metrics_->make_counter("ufw_process_cpu_system_ns_total");
+    sampler_->add_task([maxrss, cpu_user, cpu_system]
+    {
+        auto const usage = core::sample_process_usage();
+        maxrss.set(static_cast<std::int64_t>(usage.maxrss_bytes));
+        cpu_user.set(usage.user_ns);
+        cpu_system.set(usage.system_ns);
+    });
 }
 
 // Wire each worker its column drainer (the [*][me] inbound cells of the matrix)
@@ -216,8 +281,12 @@ void application::wire_workers()
         bool const ring_fed = !inbound.empty();
         if (ring_fed)
         {
+            auto const latency_series = metrics_ == nullptr
+                ? core::metrics::series{}
+                : metrics_->make_series(R"(ufw_dispatch_latency_ns{worker=")"
+                                        + std::to_string(worker->id()) + R"("})");
             drainers_.push_back(std::make_unique<core::column_drainer>(
-                std::move(inbound), worker->stats()));
+                std::move(inbound), worker->stats(), latency_series));
             worker->add_source(*drainers_.back());
         }
         if (worker->id() == 0 || worker->kind() == core::loop_kind::blocking)
@@ -345,6 +414,14 @@ void application::load(application_config const& cfg)
     if (!cfg.workers.empty())
     {
         build_worker_pool(cfg.workers);
+    }
+    if (!cfg.telemetry.file.empty())
+    {
+        metrics_ = std::make_unique<core::metrics::registry>(
+            core::metrics::registry::options{.file = cfg.telemetry.file.c_str()});
+        sampler_ = std::make_unique<core::metrics::sampler>(
+            std::chrono::milliseconds{cfg.telemetry.interval_ms});
+        LOG_INF("telemetry: {} sampled every {}ms", cfg.telemetry.file, cfg.telemetry.interval_ms);
     }
 
     for (auto const& entity_cfg: cfg.entities)

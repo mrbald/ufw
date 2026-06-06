@@ -14,6 +14,10 @@ application:
       loop: spinning
       pin_core: 2
 
+  telemetry:
+    file: dispatch_two_worker.metrics
+    interval_ms: 100
+
   entities:
     - name: LOGGER
       config:

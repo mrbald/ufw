@@ -26,6 +26,8 @@
 
 #include <ufw/core/exec/dispatch_matrix.hpp>
 #include <ufw/core/exec/worker.hpp>
+#include <ufw/core/metrics/metrics.hpp>
+#include <ufw/core/metrics/sampler.hpp>
 
 #include <boost/core/demangle.hpp>
 
@@ -171,6 +173,11 @@ struct application
         }
         return *workers_[idx];
     }
+
+    // The mmap gauge registry (opt-in via the `telemetry:` config block) — null
+    // when telemetry is not configured. Entities may register their own gauges in
+    // init() (registration is init-phase single-threaded, like all resolution).
+    [[nodiscard]] core::metrics::registry* metrics() noexcept { return metrics_.get(); }
 private:
     static entity_id id() { return "app"; } // for ENTITY_LOGGER macro to work
 
@@ -184,7 +191,8 @@ private:
     void fini_participants();
 
     void build_worker_pool(std::vector<worker_config> const& workers); // load(): workers + matrix
-    void wire_workers(); // post-init: column drainers + backstops onto the workers
+    void wire_workers();   // post-init: column drainers + backstops onto the workers
+    void wire_telemetry(); // post-init: sampler tasks (worker mirrors + process rusage)
 
     boost::asio::io_context context_;
     boost::asio::signal_set terminal_signals_ {context_, SIGINT/*, SIGTERM*/};
@@ -195,15 +203,18 @@ private:
 
     std::vector<std::reference_wrapper<lifecycle_participant>> lifecycle_participants_;
 
-    // --- the opt-in dispatch fabric (absent without a `workers:` block) ---
-    // Declaration order is load-bearing: workers_ LAST, so it destructs FIRST —
-    // a worker's dtor (and a still-running loop) touches its drainers and the
-    // backstop, which must therefore outlive it.
+    // --- the opt-in dispatch fabric + telemetry ---
+    // Declaration order is load-bearing (destruction is the reverse): the sampler
+    // goes LAST (destructs first — its tasks read worker stats and gauges), the
+    // workers next (their dtors and still-running loops touch drainers/backstop),
+    // and the registry early (drainers hold series handles into its mapping).
     std::map<resolved_entity_id, unsigned> entity_workers_;
     std::unique_ptr<core::dispatch_matrix> matrix_;
     std::unique_ptr<asio_backstop> backstop_;
+    std::unique_ptr<core::metrics::registry> metrics_;
     std::vector<std::unique_ptr<core::column_drainer>> drainers_;
-    std::vector<std::unique_ptr<core::worker>> workers_; // absent rid => worker 0
+    std::vector<std::unique_ptr<core::worker>> workers_;
+    std::unique_ptr<core::metrics::sampler> sampler_; // absent rid => worker 0
 
     ENTITY_LOGGER;
 

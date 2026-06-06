@@ -143,6 +143,15 @@ public:
         std::atomic_ref const cell{*cell_};
         cell.store(cell.load(std::memory_order_relaxed) + n, std::memory_order_relaxed);
     }
+    // Mirror an external cumulative-monotonic source (e.g. worker_stats fields, CPU
+    // ns) — the SOURCE guarantees monotonicity, the sampler just reflects it.
+    void set(std::uint64_t v) const noexcept
+    {
+        if (cell_ != nullptr)
+        {
+            std::atomic_ref{*cell_}.store(v, std::memory_order_relaxed);
+        }
+    }
     [[nodiscard]] explicit operator bool() const noexcept { return cell_ != nullptr; }
 
 private:

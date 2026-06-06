@@ -44,6 +44,7 @@ void worker::run_inline()
     {
         pin_thread(pin_core_);
     }
+    cpu_handle_.store(current_thread_cpu_handle().value, std::memory_order_relaxed);
     if (kind_ == loop_kind::spinning)
     {
         loop_spinning();

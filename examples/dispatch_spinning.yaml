@@ -8,6 +8,10 @@ application:
     - id: 0
       loop: spinning
 
+  telemetry:
+    file: dispatch_spinning.metrics
+    interval_ms: 100
+
   entities:
     - name: LOGGER
       config:

@@ -21,6 +21,7 @@
 #include "poll_source.hpp"
 #include "worker.hpp"
 
+#include <ufw/core/metrics/metrics.hpp>
 #include <ufw/core/ring/spsc_ring.hpp>
 #include <ufw/core/sys/timing.hpp>
 
@@ -98,8 +99,11 @@ private:
 class column_drainer final : public poll_source
 {
 public:
-    column_drainer(std::vector<spsc_ring<dispatch_cmd>*> inbound, worker_stats& stats) noexcept:
-        inbound_{std::move(inbound)}, stats_{&stats}
+    // `latency_series` is optional telemetry: per-message dispatch latency (ns)
+    // recorded into the mmap gauge file; a null handle is an inert no-op.
+    column_drainer(std::vector<spsc_ring<dispatch_cmd>*> inbound, worker_stats& stats,
+                   metrics::series latency_series = {}) noexcept:
+        inbound_{std::move(inbound)}, stats_{&stats}, latency_series_{latency_series}
     {
     }
 
@@ -122,6 +126,7 @@ public:
                     std::uint64_t const lat = now - cmd.stamp;
                     stat_add(stats_->dispatch_ticks_sum, lat);
                     stat_max(stats_->dispatch_ticks_max, lat);
+                    latency_series_.record(ticks_to_ns(lat), now); // inert when telemetry is off
                 }
             }
             ring->release(run.size());
@@ -134,6 +139,7 @@ public:
 private:
     std::vector<spsc_ring<dispatch_cmd>*> inbound_;
     worker_stats* stats_; // the OWNING worker's stats (we run on its thread)
+    metrics::series latency_series_;
 };
 
 } // namespace ufw::core

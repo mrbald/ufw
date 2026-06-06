@@ -11,14 +11,18 @@
 
 #include <ufw/core/mem/memory_region.hpp>
 #include <ufw/core/metrics/metrics.hpp>
+#include <ufw/core/metrics/sampler.hpp>
 #include <ufw/core/sys/timing.hpp>
 
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <numeric>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 #include <unistd.h>
 
@@ -134,6 +138,22 @@ BOOST_AUTO_TEST_CASE(gauges_round_trip_through_the_file)
         BOOST_TEST(worst_has_max); // the spike is retained as an exemplar
     }
     BOOST_TEST(::unlink(path) == 0);
+}
+
+BOOST_AUTO_TEST_CASE(sampler_ticks_then_stops)
+{
+    std::atomic<int> ticks{0};
+    {
+        mx::sampler s{std::chrono::milliseconds{5}};
+        s.add_task([&ticks] { ticks.fetch_add(1, std::memory_order_relaxed); });
+        s.start();
+        std::this_thread::sleep_for(std::chrono::milliseconds{40});
+        s.stop();
+    }
+    int const seen = ticks.load();
+    BOOST_TEST(seen >= 2); // ran immediately + at least once per interval-ish
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+    BOOST_TEST(ticks.load() == seen); // stopped means stopped
 }
 
 BOOST_AUTO_TEST_SUITE_END(/* ufw_core_metrics */)

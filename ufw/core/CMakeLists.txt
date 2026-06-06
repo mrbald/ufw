@@ -25,7 +25,9 @@ add_library(ufw_core SHARED
     exec/worker.cpp
     exec/worker.hpp
     metrics/metrics.cpp
-    metrics/metrics.hpp)
+    metrics/metrics.hpp
+    metrics/sampler.cpp
+    metrics/sampler.hpp)
 
 target_compile_features(ufw_core PUBLIC cxx_std_23)
 

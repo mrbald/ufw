@@ -57,6 +57,20 @@ entities:
     BOOST_TEST(cfg.entities[0].worker == 1U);
 }
 
+BOOST_AUTO_TEST_CASE(telemetry_config_decodes)
+{
+    auto const node = YAML::Load(R"(
+telemetry:
+  file: app.metrics
+  interval_ms: 250
+entities: []
+)");
+    auto const cfg = node.as<ufw::application_config>();
+    BOOST_TEST(cfg.telemetry.file == "app.metrics");
+    BOOST_TEST(cfg.telemetry.interval_ms == 250U);
+    BOOST_TEST(ufw::application_config{}.telemetry.file.empty()); // default: disabled
+}
+
 struct echo_actor final : ufw::entity, ufw::lifecycle_participant
 {
     echo_actor(ufw::entity_id const& id, ufw::resolved_entity_id rid, ufw::application& app):

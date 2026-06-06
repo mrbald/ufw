@@ -44,9 +44,17 @@ struct entity_config
     config_t config;
 };
 
+// The mmap telemetry file + the warm sampler cadence (see ufw/core/metrics/).
+struct telemetry_config
+{
+    std::string file;            // empty => telemetry disabled
+    unsigned interval_ms = 1000; // the warm (rusage / stats-mirror) sampling tier
+};
+
 struct application_config
 {
     std::vector<worker_config> workers; // optional; absent => no pool, today's single-threaded run loop
+    telemetry_config telemetry;         // optional; absent => no telemetry
     std::vector<entity_config> entities;
 };
 
@@ -84,6 +92,31 @@ struct convert<ufw::worker_config> {
         CFG_DECODE(id);
         CFG_DECODE_IF_SET(loop);
         CFG_DECODE_IF_SET(pin_core);
+
+        return true;
+    }
+};
+
+template <>
+struct convert<ufw::telemetry_config> {
+    static Node encode(const ufw::telemetry_config& rhs) {
+        Node node;
+
+        CFG_ENCODE(file);
+        CFG_ENCODE(interval_ms);
+
+        return node;
+    }
+
+    static bool decode(const Node& node, ufw::telemetry_config& rhs)
+    {
+        if (node.IsSequence())
+        {
+            return false;
+        }
+
+        CFG_DECODE(file);
+        CFG_DECODE_IF_SET(interval_ms);
 
         return true;
     }
@@ -134,6 +167,7 @@ struct convert<ufw::application_config> {
             return false;
         }
         CFG_DECODE_IF_SET(workers);
+        CFG_DECODE_IF_SET(telemetry);
         CFG_DECODE(entities);
         return true;
     }

@@ -8,6 +8,10 @@ application:
     - id: 0
       loop: blocking
 
+  telemetry:
+    file: dispatch_blocking.metrics
+    interval_ms: 100
+
   entities:
     - name: LOGGER
       config:

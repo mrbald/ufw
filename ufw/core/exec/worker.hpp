@@ -14,6 +14,7 @@
 #include "poll_source.hpp"
 
 #include <ufw/core/ring/sequencer.hpp> // cache_line (TODO: hoist to sys/ some day)
+#include <ufw/core/sys/thread_usage.hpp>
 
 #include <atomic>
 #include <cstdint>
@@ -99,6 +100,13 @@ public:
     [[nodiscard]] worker_stats&       stats() noexcept { return stats_; }
     [[nodiscard]] worker_stats const& stats() const noexcept { return stats_; }
 
+    // The loop thread's CPU handle, captured at loop entry — {} until the loop
+    // runs. For the telemetry sampler (sample_thread_cpu from its cold thread).
+    [[nodiscard]] thread_cpu_handle cpu_handle() const noexcept
+    {
+        return {cpu_handle_.load(std::memory_order_relaxed)};
+    }
+
 private:
     void loop_spinning() noexcept;
     void loop_blocking() noexcept;
@@ -110,6 +118,7 @@ private:
     blocking_source* backstop_ = nullptr;
     std::uint64_t backstop_cadence_mask_ = 0; // spinning only; 0 = poll every turn
     std::atomic<bool> stop_{false};
+    std::atomic<std::uintptr_t> cpu_handle_{0}; // captured at loop entry
     std::thread thread_; // empty when run_inline()
 
     alignas(cache_line) worker_stats stats_{};
