@@ -12,7 +12,16 @@ add_library(ufw_core SHARED
     ring/multicast_channel.hpp
     ring/multicast_feed.hpp
     sys/affinity.cpp
-    sys/affinity.hpp)
+    sys/affinity.hpp
+    sys/cpu.hpp
+    sys/timing.cpp
+    sys/timing.hpp
+    exec/command.hpp
+    exec/poll_source.hpp
+    exec/inbox.hpp
+    exec/dispatch_matrix.hpp
+    exec/worker.cpp
+    exec/worker.hpp)
 
 target_compile_features(ufw_core PUBLIC cxx_std_23)
 
@@ -30,8 +39,8 @@ install(TARGETS ufw_core EXPORT UfwTargets
     LIBRARY DESTINATION "${INSTALL_LIB_DIR}"
     COMPONENT shlib)
 
-# Header-tree install preserves the mem/ , ring/ , sys/ subdirs (PUBLIC_HEADER would flatten them).
-install(DIRECTORY mem ring sys
+# Header-tree install preserves the mem/ , ring/ , sys/ , exec/ subdirs (PUBLIC_HEADER would flatten them).
+install(DIRECTORY mem ring sys exec
     DESTINATION "${INSTALL_INCLUDE_DIR}/ufw/core"
     COMPONENT dev
     FILES_MATCHING PATTERN "*.hpp")

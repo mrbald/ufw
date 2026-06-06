@@ -1,0 +1,136 @@
+/*
+ * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
+ * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ *
+ * The RESOLVED inbox handle: `inbox(args...)` as a tiny trivially-copyable value
+ * (no std::function, no heap, no vtable on the hot path) that either makes a
+ * direct method call (target lives on the CALLING worker) or packs the args into a
+ * dispatch_cmd and pushes it into the caller-to-target ring for the target's
+ * worker to drain. Which branch is taken is decided ONCE, at resolve time, by
+ * whoever constructs the handle (the app layer compares worker assignments), and
+ * is frozen into `out_` — null means direct.
+ *
+ * Entity-agnostic on purpose: a handle binds any object + member function whose
+ * args are trivially copyable, so the core can be exercised by plain structs in
+ * tests and benchmarks; the entity/`inbox_ref` glue lives in ufw_app.
+ */
+#pragma once
+
+#include "command.hpp"
+#include "poll_source.hpp"
+
+#include <ufw/core/ring/spsc_ring.hpp>
+#include <ufw/core/sys/cpu.hpp>
+#include <ufw/core/sys/timing.hpp>
+
+#include <type_traits>
+
+namespace ufw::core {
+
+// The bound non-virtual delegate for `Method` (= &T::m, taking exactly Args...):
+// casts obj back to T and forwards the unpacked args. Bound at resolve time —
+// the same moment entity_ref<T>::resolve() caches its typed pointer.
+template <class T, auto Method, class... Args>
+void trampoline_for(void* obj, dispatch_cmd const& cmd) noexcept
+{
+    apply_from_buffer<Args...>(cmd.args, [obj](Args... args) noexcept
+    {
+        (static_cast<T*>(obj)->*Method)(args...);
+    });
+}
+
+template <class Sig>
+class inbox_handle;
+
+template <class... Args>
+class inbox_handle<void(Args...)>
+{
+    static_assert((std::is_trivially_copyable_v<Args> && ...),
+                  "inbox args must be trivially copyable (ring slot constraint)");
+
+public:
+    inbox_handle() = default; // null until resolved
+
+    inbox_handle(void* obj, trampoline_t tramp,
+                 spsc_ring<dispatch_cmd>* out, wakeable* notify) noexcept:
+        obj_{obj}, tramp_{tramp}, out_{out}, notify_{notify} {}
+
+    // The hot path. Same worker: one erased call, no stamp (there is no queueing
+    // latency to measure). Cross-worker: pack + stamp + spin-push (loss-free SPSC
+    // back-pressure; the policy seam is per-edge, spin is the default) + an
+    // optional wake of a parked target (never-taken branch for spinners).
+    void operator()(Args... args) const noexcept
+    {
+        dispatch_cmd cmd{.tramp = tramp_, .obj = obj_, .stamp = 0, .args = {}};
+        pack_args(cmd.args, args...);
+        if (out_ == nullptr)
+        {
+            tramp_(obj_, cmd);            // direct: runs NOW, on the target's worker
+            return;
+        }
+        cmd.stamp = now_ticks();          // dispatch-latency telemetry (cross-worker only)
+        while (!out_->try_push(cmd))
+        {
+            cpu_relax();
+        }
+        if (notify_ != nullptr)
+        {
+            notify_->wake();
+        }
+    }
+
+    [[nodiscard]] explicit operator bool() const noexcept { return obj_ != nullptr; }
+
+private:
+    void*                    obj_    = nullptr;
+    trampoline_t             tramp_  = nullptr;
+    spsc_ring<dispatch_cmd>* out_    = nullptr; // null => direct call (same worker)
+    wakeable*                notify_ = nullptr; // target worker's wakeable (null for spinners)
+};
+
+namespace detail {
+
+// Deduce the owner type + arg list from a member-function pointer, so factories
+// are spelled make_*_handle<&T::method>(...) with nothing repeated.
+template <class M>
+struct method_sig;
+
+template <class T, class... Args>
+struct method_sig<void (T::*)(Args...)>
+{
+    using owner_t  = T;
+    using handle_t = inbox_handle<void(Args...)>;
+
+    template <auto Method>
+    [[nodiscard]] static consteval trampoline_t tramp() noexcept
+    {
+        return &trampoline_for<T, Method, Args...>;
+    }
+};
+
+template <class T, class... Args>
+struct method_sig<void (T::*)(Args...) noexcept> : method_sig<void (T::*)(Args...)> {};
+
+} // namespace detail
+
+// Same-worker handle: every call is a direct method call on the caller's thread.
+template <auto Method>
+[[nodiscard]] auto make_direct_handle(
+    typename detail::method_sig<decltype(Method)>::owner_t* target) noexcept
+{
+    using sig = detail::method_sig<decltype(Method)>;
+    return typename sig::handle_t{target, sig::template tramp<Method>(), nullptr, nullptr};
+}
+
+// Cross-worker handle: every call packs into `out` (the caller->target matrix
+// cell); `notify` is the target worker's wakeable, or null for a spinning target.
+template <auto Method>
+[[nodiscard]] auto make_enqueue_handle(
+    typename detail::method_sig<decltype(Method)>::owner_t* target,
+    spsc_ring<dispatch_cmd>& out, wakeable* notify) noexcept
+{
+    using sig = detail::method_sig<decltype(Method)>;
+    return typename sig::handle_t{target, sig::template tramp<Method>(), &out, notify};
+}
+
+} // namespace ufw::core
