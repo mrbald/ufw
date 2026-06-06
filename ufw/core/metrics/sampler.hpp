@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * The WARM telemetry tier: one cold thread ticking at a fixed interval (~1Hz),
  * running registered sampling tasks — the things that need a syscall (rusage) or a

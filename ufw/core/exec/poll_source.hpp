@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * The run-loop seam. The polymorphic thing in the executor is NOT the loop — it is
  * the poll_source: one bounded, NON-BLOCKING unit of pollable work. A worker is an

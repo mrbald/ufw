@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * The boost::asio io_context as a worker's backstop (ufw/core/exec/poll_source.hpp):
  *   - poll()          poll_one(): at most ONE ready handler — the poll_source

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * The dispatch fabric (ufw/core/exec/): the resolved inbox handle, the erased
  * command, the worker/matrix. Latest numbers are at the bottom of this file;

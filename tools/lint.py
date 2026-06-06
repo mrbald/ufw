@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
 """
 clang-tidy harness for uFW — single source of truth for CLI, CMake targets, and CI.
 

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * Monotonic, cheap tick source for inline telemetry. now_ticks() is INLINE (a single
  * counter read) because it is stamped on the dispatch hot path; only the nanosecond

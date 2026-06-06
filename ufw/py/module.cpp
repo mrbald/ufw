@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2015-2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * uFW Python control plane (nanobind). Python assembles and drives a C++
  * application — the "mostly A" shape: Python replaces the YAML launcher. The

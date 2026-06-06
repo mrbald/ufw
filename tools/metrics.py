@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
 """
 Read a uFW telemetry file (ufw/core/metrics/) from OUTSIDE the process — the
 cold-tier consumer. Mirrors the on-file layout field for field; if this script can

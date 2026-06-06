@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * CPU spin-wait hint. Inline (it sits inside busy loops); leaks no platform
  * <header> — a compiler builtin / one asm line, same discipline as timing.hpp.

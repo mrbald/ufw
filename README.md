@@ -200,6 +200,21 @@ References
 [Draw.io](https://www.draw.io)
 
 
+
+Licensing
+---------
+µFW is **dual-licensed**:
+
+* [AGPL-3.0-only](LICENSE) — free for any use where your application as a whole
+  complies with the AGPL (including its network-interaction terms). Hobby,
+  research, and open-source use fit here with no friction.
+* A **commercial license** for building proprietary applications without AGPL
+  obligations — see [COMMERCIAL.md](COMMERCIAL.md).
+
+Contributions are accepted under Apache-2.0 inbound + DCO — see
+[CONTRIBUTING.md](CONTRIBUTING.md). Historical releases up to the git tag
+`apache-final` remain Apache-2.0.
+
 [1]: https://en.wikipedia.org/wiki/Unix-like
 [2]: https://en.wikipedia.org/wiki/Linux
 [3]: https://en.wikipedia.org/wiki/MacOS

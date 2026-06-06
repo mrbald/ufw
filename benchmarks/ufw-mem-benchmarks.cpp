@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * Stage 1A: memory_region micro-benchmarks (syscall-bound — mmap/mlock/mprotect).
  * Latest numbers are pasted at the bottom of this file; regenerate with

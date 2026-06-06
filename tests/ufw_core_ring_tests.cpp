@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * Stage 1B: SPSC ring<T>, loss-free multicast_channel<T> (gated by the slowest
  * subscriber), and lossy multicast_feed<T> (overwriting, never-waiting).

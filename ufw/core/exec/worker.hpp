@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * A worker: a pinned thread (or the calling thread — the single-thread collapse)
  * running one run-loop flavour over an ordered set of poll_sources plus an optional

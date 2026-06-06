@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * The RESOLVED inbox handle: `inbox(args...)` as a tiny trivially-copyable value
  * (no std::function, no heap, no vtable on the hot path) that either makes a

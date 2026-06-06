@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * inbox_ref — the entity_ref<T> sibling for MESSAGING. Where entity_ref resolves
  * to a typed pointer, an inbox_ref resolves to a core::inbox_handle: a tiny curried

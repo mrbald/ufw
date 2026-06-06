@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
 """
 Run a domain's google-benchmark suite and record the result table in a delimited
 block at the bottom of its source file, so the performance numbers travel with

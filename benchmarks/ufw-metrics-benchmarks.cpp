@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * The telemetry substrate write costs — what the HOT tier pays to record. Latest
  * numbers at the bottom; regenerate with tools/bench.py metrics. An anonymous

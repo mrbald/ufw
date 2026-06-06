@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * The any-to-any dispatch fabric for N workers: cell [from][to] is the SPSC ring
  * carrying `from`'s commands TO worker `to`. The producer of a cell is exactly one

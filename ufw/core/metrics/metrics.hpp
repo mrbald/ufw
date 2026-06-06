@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * The telemetry substrate: gauges living in a memory-mapped FILE, written inline
  * by the hot path (mmap pages are memory — no syscalls), read by anything that can

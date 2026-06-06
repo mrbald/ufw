@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * Cross-thread CPU usage sampling for the telemetry sampler: capture a cheap
  * handle ON the thread of interest once, then sample it from ANY thread (the 1Hz

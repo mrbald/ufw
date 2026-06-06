@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2026 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  *
  * Fixed-size single-producer / single-consumer ring of trivially-copyable T.
  * Lock-free and wait-free on the fast path. Cursors/back-pressure/ordering live

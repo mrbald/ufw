@@ -1,5 +1,5 @@
-/* Copyright (c) 2018 Vladimir Lysyy (mrbald@github)
- * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
+/* Copyright (c) 2018-2026 Vladimir Lysyy (mrbald@github)
+ * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-uFW-Commercial
  */
 
 #include <boost/test/unit_test.hpp>
