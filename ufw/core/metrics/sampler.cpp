@@ -26,7 +26,7 @@ void sampler::start()
 void sampler::stop()
 {
     {
-        std::lock_guard const lock{mutex_};
+        std::scoped_lock const lock{mutex_};
         stop_ = true;
     }
     cv_.notify_one();
@@ -47,8 +47,14 @@ void sampler::run() noexcept
         std::unique_lock lock{mutex_};
         if (cv_.wait_for(lock, interval_, [this] { return stop_; }))
         {
-            return;
+            break;
         }
+    }
+    // One final flush ON THIS THREAD (the gauges' single writer), so runs shorter
+    // than an interval — and post-mortem reads in general — see the end state.
+    for (auto const& task : tasks_)
+    {
+        task();
     }
 }
 

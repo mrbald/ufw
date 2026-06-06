@@ -33,6 +33,7 @@ DOMAINS = {
     "mem":      ("mem_",      "benchmarks/ufw-mem-benchmarks.cpp"),
     "ring":     ("ring_",     "benchmarks/ufw-ring-benchmarks.cpp"),
     "dispatch": ("dispatch_", "benchmarks/ufw-dispatch-benchmarks.cpp"),
+    "metrics":  ("metrics_",  "benchmarks/ufw-metrics-benchmarks.cpp"),
 }
 
 

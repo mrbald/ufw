@@ -53,6 +53,12 @@ void worker::run_inline()
     {
         loop_blocking();
     }
+    // Terminal CPU self-sample (a thread is always a valid target for itself):
+    // once the thread dies its handle cannot be sampled, so the telemetry flush
+    // falls back to this — runs shorter than a sampling interval still report CPU.
+    auto const cpu = sample_thread_cpu({cpu_handle_.load(std::memory_order_relaxed)});
+    final_cpu_total_ns_.store(cpu.total_ns, std::memory_order_relaxed);
+    final_cpu_system_ns_.store(cpu.system_ns, std::memory_order_relaxed);
 }
 
 void worker::launch()

@@ -132,7 +132,10 @@ public:
             ring->release(run.size());
             did += run.size();
         }
-        stat_add(stats_->dispatched, did);
+        if (did != 0) // an atomic store is not elidable like `+= 0` was; keep idle turns store-free
+        {
+            stat_add(stats_->dispatched, did);
+        }
         return did;
     }
 

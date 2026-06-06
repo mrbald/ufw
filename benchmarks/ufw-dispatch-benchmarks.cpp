@@ -210,10 +210,10 @@ BENCHMARK(dispatch_cross_worker_throughput)->UseRealTime();
 // platform: Darwin arm64 | build: build/Release | filter: dispatch_
 // Benchmark                                           Time             CPU   Iterations UserCounters...
 // -----------------------------------------------------------------------------------------------------
-// dispatch_virtual_baseline                       0.743 ns        0.743 ns    753224743 items_per_second=1.34558G/s
-// dispatch_direct_call                            0.253 ns        0.253 ns   2036541371 items_per_second=3.95909G/s
-// dispatch_empty_drain_turn/1                     0.744 ns        0.744 ns    755429651 items_per_second=1.34423G/s
-// dispatch_empty_drain_turn/4                      2.23 ns         2.23 ns    268394617 items_per_second=448.529M/s
-// dispatch_cross_worker_rtt/real_time              98.0 ns         98.0 ns      5975971 items_per_second=10.2083M/s
-// dispatch_cross_worker_throughput/real_time       25.0 ns         25.0 ns     21611883 items_per_second=39.9458M/s
+// dispatch_virtual_baseline                       0.744 ns        0.744 ns    751728304 items_per_second=1.34368G/s
+// dispatch_direct_call                            0.283 ns        0.283 ns   2165556819 items_per_second=3.53526G/s
+// dispatch_empty_drain_turn/1                      1.74 ns         1.74 ns    322368951 items_per_second=575.818M/s
+// dispatch_empty_drain_turn/4                      5.65 ns         5.65 ns     93981808 items_per_second=177.136M/s
+// dispatch_cross_worker_rtt/real_time              94.0 ns         94.0 ns      5330858 items_per_second=10.6358M/s
+// dispatch_cross_worker_throughput/real_time       25.6 ns         25.6 ns     22249177 items_per_second=39.0464M/s
 // <<<END BENCHMARK RESULTS>>>

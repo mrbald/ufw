@@ -107,6 +107,14 @@ public:
         return {cpu_handle_.load(std::memory_order_relaxed)};
     }
 
+    // The loop's terminal CPU self-sample ({0,0} while still running) — the
+    // sampler's fallback once the thread is gone (see run_inline).
+    [[nodiscard]] thread_cpu_times final_cpu() const noexcept
+    {
+        return {.total_ns  = final_cpu_total_ns_.load(std::memory_order_relaxed),
+                .system_ns = final_cpu_system_ns_.load(std::memory_order_relaxed)};
+    }
+
 private:
     void loop_spinning() noexcept;
     void loop_blocking() noexcept;
@@ -118,7 +126,9 @@ private:
     blocking_source* backstop_ = nullptr;
     std::uint64_t backstop_cadence_mask_ = 0; // spinning only; 0 = poll every turn
     std::atomic<bool> stop_{false};
-    std::atomic<std::uintptr_t> cpu_handle_{0}; // captured at loop entry
+    std::atomic<std::uintptr_t> cpu_handle_{0};         // captured at loop entry
+    std::atomic<std::uint64_t> final_cpu_total_ns_{0};  // terminal self-sample
+    std::atomic<std::uint64_t> final_cpu_system_ns_{0}; //   (set at loop exit)
     std::thread thread_; // empty when run_inline()
 
     alignas(cache_line) worker_stats stats_{};

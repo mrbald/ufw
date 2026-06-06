@@ -239,9 +239,16 @@ void application::wire_telemetry()
                 iterations.set(it);
                 useful.set(us);
                 dispatched.set(worker->stats().dispatched.load(std::memory_order_relaxed));
-                auto const cpu = core::sample_thread_cpu(worker->cpu_handle());
-                cpu_total.set(cpu.total_ns);
-                cpu_system.set(cpu.system_ns);
+                auto cpu = core::sample_thread_cpu(worker->cpu_handle());
+                if (cpu.total_ns == 0)
+                {
+                    cpu = worker->final_cpu(); // thread gone: its terminal self-sample
+                }
+                if (cpu.total_ns != 0) // not yet launched: keep the last good sample
+                {
+                    cpu_total.set(cpu.total_ns);
+                    cpu_system.set(cpu.system_ns);
+                }
                 auto const delta_iterations = it - last_iterations;
                 auto const delta_useful     = us - last_useful;
                 utilization.set(delta_iterations == 0
