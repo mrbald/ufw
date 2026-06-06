@@ -10,6 +10,7 @@
 
 #include <ufw/core/exec/command.hpp>
 #include <ufw/core/exec/dispatch_matrix.hpp>
+#include <ufw/core/exec/dispatch_mpsc.hpp>
 #include <ufw/core/exec/inbox.hpp>
 #include <ufw/core/exec/worker.hpp>
 #include <ufw/core/ring/spsc_ring.hpp>
@@ -229,6 +230,42 @@ BOOST_AUTO_TEST_CASE(two_worker_spinning_matrix_dispatches_cross_thread)
     BOOST_TEST(w1.stats().dispatched == static_cast<std::uint64_t>(count));
     BOOST_TEST(w1.stats().useful_iters >= 1U);
     BOOST_TEST(w1.stats().iterations >= w1.stats().useful_iters);
+}
+
+// The same contract through the MPSC flavour: TWO senders, ONE inbox, one drainer.
+// (The matrix test above has one sender per cell by construction; fan-in through a
+// single ring is exactly what this flavour exists for.)
+BOOST_AUTO_TEST_CASE(two_senders_one_mpsc_inbox_dispatches_cross_thread)
+{
+    constexpr int count = 10'000; // per sender
+    ufw::core::mpsc_ring<ufw::core::dispatch_cmd> inbox{1024};
+    atomic_actor target;
+
+    auto const handle = ufw::core::make_mpsc_handle<&atomic_actor::on_add>(
+        &target, inbox, nullptr);
+    ufw::core::worker w1{1, ufw::core::loop_kind::spinning};
+    ufw::core::mpsc_drainer drainer{inbox, w1.stats()};
+    w1.add_source(drainer);
+    w1.launch();
+
+    std::thread second_sender([handle] // handles are values; copies share the port
+    {
+        for (int i = 1; i <= count; ++i)
+        {
+            handle(i);
+        }
+    });
+    for (int i = 1; i <= count; ++i)
+    {
+        handle(i);
+    }
+    second_sender.join();
+    BOOST_TEST(await([&] { return target.calls.load(std::memory_order_relaxed) == 2 * count; }));
+    w1.request_stop();
+    w1.join();
+
+    BOOST_TEST(target.sum.load() == 2LL * count * (count + 1) / 2); // lossless from both
+    BOOST_TEST(w1.stats().dispatched == static_cast<std::uint64_t>(2 * count));
 }
 
 // A blocking worker's backstop for the core test: parks on a condvar, wakes on

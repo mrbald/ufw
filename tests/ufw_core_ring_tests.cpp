@@ -11,12 +11,14 @@
  */
 #include <boost/test/unit_test.hpp>
 
+#include <ufw/core/ring/mpsc_ring.hpp>
 #include <ufw/core/ring/multicast_feed.hpp>
 #include <ufw/core/ring/multicast_channel.hpp>
 #include <ufw/core/ring/sequencer.hpp>
 #include <ufw/core/ring/spsc_ring.hpp>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -711,5 +713,83 @@ BOOST_AUTO_TEST_CASE(single_cursor_tracks_exactly)
 }
 
 BOOST_AUTO_TEST_SUITE_END(/* ufw_core_lazy_min_gate */)
+
+BOOST_AUTO_TEST_SUITE(ufw_core_mpsc_ring)
+
+BOOST_AUTO_TEST_CASE(fifo_full_and_wrap_single_thread)
+{
+    ufw::core::mpsc_ring<std::uint64_t> ring{4};
+    BOOST_REQUIRE_EQUAL(ring.capacity(), 4U);
+    BOOST_TEST(!ring.ready());
+
+    for (std::uint64_t v = 0; v < 4; ++v)
+    {
+        BOOST_TEST(ring.try_push(v));
+    }
+    BOOST_TEST(!ring.try_push(99)); // full
+
+    std::vector<std::uint64_t> seen;
+    BOOST_TEST(ring.ready());
+    BOOST_TEST(ring.drain([&seen](std::uint64_t const& v) { seen.push_back(v); }, 2) == 2U);
+    BOOST_TEST((seen == std::vector<std::uint64_t>{0, 1})); // FIFO, max_n honoured
+
+    BOOST_TEST(ring.try_push(4)); // recycled slots accept again (wrap)
+    BOOST_TEST(ring.drain([&seen](std::uint64_t const& v) { seen.push_back(v); }, 16) == 3U);
+    BOOST_TEST((seen == std::vector<std::uint64_t>{0, 1, 2, 3, 4}));
+    BOOST_TEST(!ring.ready());
+}
+
+// The reason this ring exists: N producers, ONE inbox. Every record arrives
+// exactly once and each producer's records arrive in its program order.
+BOOST_AUTO_TEST_CASE(multi_producer_exactly_once_per_producer_fifo)
+{
+    constexpr std::uint64_t producers = 4;
+    constexpr std::uint64_t per_producer = 50'000;
+    ufw::core::mpsc_ring<std::uint64_t> ring{1024};
+
+    std::vector<std::thread> threads;
+    threads.reserve(producers);
+    for (std::uint64_t p = 0; p < producers; ++p)
+    {
+        threads.emplace_back([&ring, p]
+        {
+            for (std::uint64_t i = 0; i < per_producer; ++i)
+            {
+                while (!ring.try_push((p << 32U) | i))
+                {
+                    std::this_thread::yield(); // back-pressure; see file header
+                }
+            }
+        });
+    }
+
+    std::array<std::uint64_t, producers> next{}; // expected next seq per producer
+    std::uint64_t received = 0;
+    bool per_producer_fifo = true;
+    while (received < producers * per_producer)
+    {
+        received += ring.drain(
+            [&next, &per_producer_fifo](std::uint64_t const& v)
+            {
+                auto const p = v >> 32U;
+                auto const seq = v & 0xFFFFFFFFU;
+                per_producer_fifo = per_producer_fifo && seq == next.at(p);
+                next.at(p) = seq + 1;
+            },
+            256);
+    }
+    for (auto& t : threads)
+    {
+        t.join();
+    }
+    BOOST_TEST(per_producer_fifo);
+    for (std::uint64_t const n : next)
+    {
+        BOOST_TEST(n == per_producer); // exactly once, none lost
+    }
+    BOOST_TEST(!ring.ready()); // and nothing extra
+}
+
+BOOST_AUTO_TEST_SUITE_END(/* ufw_core_mpsc_ring */)
 
 } // namespace

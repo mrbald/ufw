@@ -61,6 +61,16 @@ entities: []
     BOOST_TEST(ufw::application_config{}.telemetry.file.empty()); // default: disabled
 }
 
+BOOST_AUTO_TEST_CASE(dispatch_flavour_config_decodes)
+{
+    auto const node = YAML::Load(R"(
+dispatch: mpsc
+entities: []
+)");
+    BOOST_TEST(node.as<ufw::application_config>().dispatch == "mpsc");
+    BOOST_TEST(ufw::application_config{}.dispatch == "matrix"); // the default flavour
+}
+
 struct echo_actor final : ufw::entity, ufw::lifecycle_participant
 {
     echo_actor(ufw::entity_id const& id, ufw::resolved_entity_id rid, ufw::application& app):

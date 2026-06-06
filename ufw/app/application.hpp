@@ -15,6 +15,8 @@
 #include "asio_backstop.hpp"
 
 #include <ufw/core/exec/dispatch_matrix.hpp>
+#include <ufw/core/exec/dispatch_mpsc.hpp>
+#include <ufw/core/exec/inbox.hpp>
 #include <ufw/core/exec/worker.hpp>
 #include <ufw/core/metrics/metrics.hpp>
 #include <ufw/core/metrics/sampler.hpp>
@@ -155,6 +157,24 @@ struct application
         }
         return *matrix_;
     }
+
+    // Where a from->to send goes under the configured dispatcher flavour: a direct
+    // port (same worker / no pool), the SPSC matrix cell, or the target's MPSC
+    // inbox. THE seam inbox_ref::resolve goes through — resolve code never names a
+    // flavour.
+    [[nodiscard]] core::enqueue_port port_for(unsigned from, unsigned to)
+    {
+        if (!has_worker_pool() || from == to)
+        {
+            return {};
+        }
+        core::wakeable* const notify = worker_at(to).wakeable_or_null();
+        if (mpsc_dispatch_)
+        {
+            return {.kind = core::port_kind::mpsc_inbox, .ring = inboxes_[to].get(), .notify = notify};
+        }
+        return {.kind = core::port_kind::spsc_cell, .ring = &matrix().cell(from, to), .notify = notify};
+    }
     [[nodiscard]] core::worker& worker_at(unsigned idx)
     {
         if (idx >= workers_.size())
@@ -180,8 +200,8 @@ private:
     void stop_participants();
     void fini_participants();
 
-    void build_worker_pool(std::vector<worker_config> const& workers); // load(): workers + matrix
-    void wire_workers();   // post-init: column drainers + backstops onto the workers
+    void build_worker_pool(application_config const& cfg); // load(): workers + matrix|inboxes
+    void wire_workers();   // post-init: drainers + backstops onto the workers
     void wire_telemetry(); // post-init: sampler tasks (worker mirrors + process rusage)
 
     boost::asio::io_context context_;
@@ -198,13 +218,15 @@ private:
     // goes LAST (destructs first — its tasks read worker stats and gauges), the
     // workers next (their dtors and still-running loops touch drainers/backstop),
     // and the registry early (drainers hold series handles into its mapping).
-    std::map<resolved_entity_id, unsigned> entity_workers_;
-    std::unique_ptr<core::dispatch_matrix> matrix_;
+    std::map<resolved_entity_id, unsigned> entity_workers_; // absent rid => worker 0
+    bool mpsc_dispatch_ = false; // dispatch: matrix (default) | mpsc
+    std::unique_ptr<core::dispatch_matrix> matrix_;          // matrix flavour only
+    std::vector<std::unique_ptr<core::mpsc_ring<core::dispatch_cmd>>> inboxes_; // mpsc flavour only
     std::unique_ptr<asio_backstop> backstop_;
     std::unique_ptr<core::metrics::registry> metrics_;
-    std::vector<std::unique_ptr<core::column_drainer>> drainers_;
+    std::vector<std::unique_ptr<core::poll_source>> drainers_; // column_drainer | mpsc_drainer
     std::vector<std::unique_ptr<core::worker>> workers_;
-    std::unique_ptr<core::metrics::sampler> sampler_; // absent rid => worker 0
+    std::unique_ptr<core::metrics::sampler> sampler_;
 
     ENTITY_LOGGER;
 

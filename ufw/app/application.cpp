@@ -272,29 +272,47 @@ void application::wire_telemetry()
     });
 }
 
-// Wire each worker its column drainer (the [*][me] inbound cells of the matrix)
-// and a backstop: worker 0 always gets the io_context backstop so signals, timers
-// and posts stay serviced whichever flavour it runs; blocking workers require one.
+// Wire each worker its drainer — the matrix's [*][me] inbound column or its single
+// MPSC inbox, per the configured flavour — and a backstop: worker 0 always gets
+// the io_context backstop so signals, timers and posts stay serviced whichever
+// flavour it runs; blocking workers require one.
 void application::wire_workers()
 {
     if (workers_.empty())
     {
         return;
     }
-    LOG_INF("wiring {} workers", workers_.size());
+    LOG_INF("wiring {} workers ({} dispatch)", workers_.size(), mpsc_dispatch_ ? "mpsc" : "matrix");
+    auto const latency_series = [this](unsigned id)
+    {
+        return metrics_ == nullptr
+            ? core::metrics::series{}
+            : metrics_->make_series(R"(ufw_dispatch_latency_ns{worker=")"
+                                    + std::to_string(id) + R"("})");
+    };
     for (auto& worker : workers_)
     {
-        auto inbound = matrix_->inbound(worker->id());
-        bool const ring_fed = !inbound.empty();
-        if (ring_fed)
+        bool ring_fed = false;
+        if (mpsc_dispatch_)
         {
-            auto const latency_series = metrics_ == nullptr
-                ? core::metrics::series{}
-                : metrics_->make_series(R"(ufw_dispatch_latency_ns{worker=")"
-                                        + std::to_string(worker->id()) + R"("})");
-            drainers_.push_back(std::make_unique<core::column_drainer>(
-                std::move(inbound), worker->stats(), latency_series));
-            worker->add_source(*drainers_.back());
+            ring_fed = workers_.size() > 1; // any peer may send; a lone worker is all-direct
+            if (ring_fed)
+            {
+                drainers_.push_back(std::make_unique<core::mpsc_drainer>(
+                    *inboxes_[worker->id()], worker->stats(), latency_series(worker->id())));
+                worker->add_source(*drainers_.back());
+            }
+        }
+        else
+        {
+            auto inbound = matrix_->inbound(worker->id());
+            ring_fed = !inbound.empty();
+            if (ring_fed)
+            {
+                drainers_.push_back(std::make_unique<core::column_drainer>(
+                    std::move(inbound), worker->stats(), latency_series(worker->id())));
+                worker->add_source(*drainers_.back());
+            }
         }
         if (worker->id() == 0 || worker->kind() == core::loop_kind::blocking)
         {
@@ -386,8 +404,9 @@ namespace
 constexpr std::size_t dispatch_ring_slots = 4096;
 } // namespace
 
-void application::build_worker_pool(std::vector<worker_config> const& workers)
+void application::build_worker_pool(application_config const& cfg)
 {
+    auto const& workers = cfg.workers;
     for (std::size_t i = 0; i < workers.size(); ++i)
     {
         auto const& worker_cfg = workers[i];
@@ -410,17 +429,34 @@ void application::build_worker_pool(std::vector<worker_config> const& workers)
         }
         workers_.push_back(std::make_unique<core::worker>(worker_cfg.id, kind, worker_cfg.pin_core));
     }
-    matrix_ = std::make_unique<core::dispatch_matrix>(
-        static_cast<unsigned>(workers_.size()), dispatch_ring_slots);
+    if (cfg.dispatch == "matrix")
+    {
+        matrix_ = std::make_unique<core::dispatch_matrix>(
+            static_cast<unsigned>(workers_.size()), dispatch_ring_slots);
+    }
+    else if (cfg.dispatch == "mpsc")
+    {
+        mpsc_dispatch_ = true;
+        inboxes_.reserve(workers_.size());
+        for (std::size_t i = 0; i < workers_.size(); ++i)
+        {
+            inboxes_.push_back(
+                std::make_unique<core::mpsc_ring<core::dispatch_cmd>>(dispatch_ring_slots));
+        }
+    }
+    else
+    {
+        throw fatal_error("dispatch must be 'matrix' or 'mpsc', got: " + cfg.dispatch);
+    }
     backstop_ = std::make_unique<asio_backstop>(context_);
-    LOG_INF("worker pool: {} workers", workers_.size());
+    LOG_INF("worker pool: {} workers, {} dispatch", workers_.size(), cfg.dispatch);
 }
 
 void application::load(application_config const& cfg)
 {
     if (!cfg.workers.empty())
     {
-        build_worker_pool(cfg.workers);
+        build_worker_pool(cfg);
     }
     if (!cfg.telemetry.file.empty())
     {

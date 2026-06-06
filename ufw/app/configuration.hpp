@@ -44,6 +44,7 @@ struct telemetry_config
 struct application_config
 {
     std::vector<worker_config> workers; // optional; absent => no pool, today's single-threaded run loop
+    std::string dispatch = "matrix";    // cross-worker dispatcher flavour: matrix | mpsc
     telemetry_config telemetry;         // optional; absent => no telemetry
     std::vector<entity_config> entities;
 };
@@ -146,6 +147,7 @@ struct convert<ufw::application_config> {
     static Node encode(const ufw::application_config& rhs) {
         Node node;
         CFG_ENCODE_IF_SET(workers);
+        CFG_ENCODE(dispatch);
         CFG_ENCODE(entities);
         return node;
     }
@@ -157,6 +159,7 @@ struct convert<ufw::application_config> {
             return false;
         }
         CFG_DECODE_IF_SET(workers);
+        CFG_DECODE_IF_SET(dispatch);
         CFG_DECODE_IF_SET(telemetry);
         CFG_DECODE(entities);
         return true;

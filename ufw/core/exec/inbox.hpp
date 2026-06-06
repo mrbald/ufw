@@ -5,10 +5,11 @@
  * The RESOLVED inbox handle: `inbox(args...)` as a tiny trivially-copyable value
  * (no std::function, no heap, no vtable on the hot path) that either makes a
  * direct method call (target lives on the CALLING worker) or packs the args into a
- * dispatch_cmd and pushes it into the caller-to-target ring for the target's
- * worker to drain. Which branch is taken is decided ONCE, at resolve time, by
- * whoever constructs the handle (the app layer compares worker assignments), and
- * is frozen into `out_` — null means direct.
+ * dispatch_cmd and pushes it through an ENQUEUE PORT for the target's worker to
+ * drain. The port abstracts the dispatcher flavour — an SPSC matrix cell or the
+ * target's MPSC inbox — and is decided ONCE, at resolve time, by whoever
+ * constructs the handle (the app layer knows the topology and the flavour). The
+ * per-call kind branch is stable per handle: the predictor owns it.
  *
  * Entity-agnostic on purpose: a handle binds any object + member function whose
  * args are trivially copyable, so the core can be exercised by plain structs in
@@ -19,13 +20,32 @@
 #include "command.hpp"
 #include "poll_source.hpp"
 
+#include <ufw/core/ring/mpsc_ring.hpp>
 #include <ufw/core/ring/spsc_ring.hpp>
 #include <ufw/core/sys/cpu.hpp>
 #include <ufw/core/sys/timing.hpp>
 
+#include <cstdint>
 #include <type_traits>
 
 namespace ufw::core {
+
+// Where a handle's cross-worker sends go. Built by whoever knows the topology and
+// the dispatcher flavour (the app layer's port_for); consumed by inbox_handle.
+enum class port_kind : std::uint8_t
+{
+    direct,     // same worker: no ring, the call runs synchronously
+    spsc_cell,  // the caller->target cell of the SPSC dispatch matrix
+    mpsc_inbox, // the target worker's single MPSC inbox
+};
+
+struct enqueue_port
+{
+    port_kind kind   = port_kind::direct;
+    void*     ring   = nullptr; // spsc_ring<dispatch_cmd>* | mpsc_ring<dispatch_cmd>*
+    wakeable* notify = nullptr; // target worker's wakeable (null for spinners)
+};
+static_assert(std::is_trivially_copyable_v<enqueue_port>);
 
 // The bound non-virtual delegate for `Method` (= &T::m, taking exactly Args...):
 // casts obj back to T and forwards the unpacked args. Bound at resolve time —
@@ -51,31 +71,42 @@ class inbox_handle<void(Args...)>
 public:
     inbox_handle() = default; // null until resolved
 
-    inbox_handle(void* obj, trampoline_t tramp,
-                 spsc_ring<dispatch_cmd>* out, wakeable* notify) noexcept:
-        obj_{obj}, tramp_{tramp}, out_{out}, notify_{notify} {}
+    inbox_handle(void* obj, trampoline_t tramp, enqueue_port port) noexcept:
+        obj_{obj}, tramp_{tramp}, port_{port} {}
 
     // The hot path. Same worker: one erased call, no stamp (there is no queueing
-    // latency to measure). Cross-worker: pack + stamp + spin-push (loss-free SPSC
+    // latency to measure). Cross-worker: pack + stamp + spin-push (loss-free
     // back-pressure; the policy seam is per-edge, spin is the default) + an
     // optional wake of a parked target (never-taken branch for spinners).
     void operator()(Args... args) const noexcept
     {
         dispatch_cmd cmd{.tramp = tramp_, .obj = obj_, .stamp = 0, .args = {}};
         pack_args(cmd.args, args...);
-        if (out_ == nullptr)
+        if (port_.kind == port_kind::direct)
         {
             tramp_(obj_, cmd);            // direct: runs NOW, on the target's worker
             return;
         }
         cmd.stamp = now_ticks();          // dispatch-latency telemetry (cross-worker only)
-        while (!out_->try_push(cmd))
+        if (port_.kind == port_kind::spsc_cell)
         {
-            cpu_relax();
+            auto* ring = static_cast<spsc_ring<dispatch_cmd>*>(port_.ring);
+            while (!ring->try_push(cmd))
+            {
+                cpu_relax();
+            }
         }
-        if (notify_ != nullptr)
+        else
         {
-            notify_->wake();
+            auto* ring = static_cast<mpsc_ring<dispatch_cmd>*>(port_.ring);
+            while (!ring->try_push(cmd))
+            {
+                cpu_relax();
+            }
+        }
+        if (port_.notify != nullptr)
+        {
+            port_.notify->wake();
         }
     }
 
@@ -83,13 +114,15 @@ public:
 
     // True for a resolved SAME-WORKER handle (calls run synchronously on the
     // caller's stack); false for cross-worker enqueue or an unresolved handle.
-    [[nodiscard]] bool direct() const noexcept { return obj_ != nullptr && out_ == nullptr; }
+    [[nodiscard]] bool direct() const noexcept
+    {
+        return obj_ != nullptr && port_.kind == port_kind::direct;
+    }
 
 private:
-    void*                    obj_    = nullptr;
-    trampoline_t             tramp_  = nullptr;
-    spsc_ring<dispatch_cmd>* out_    = nullptr; // null => direct call (same worker)
-    wakeable*                notify_ = nullptr; // target worker's wakeable (null for spinners)
+    void*        obj_   = nullptr;
+    trampoline_t tramp_ = nullptr;
+    enqueue_port port_{}; // kind == direct => same-worker synchronous call
 };
 
 namespace detail {
@@ -124,24 +157,42 @@ using method_owner_t = detail::method_sig<decltype(Method)>::owner_t;
 template <auto Method>
 using inbox_handle_for = detail::method_sig<decltype(Method)>::handle_t;
 
+// The general factory: the port decides direct vs which-flavour-enqueue.
+template <auto Method>
+[[nodiscard]] auto make_handle(
+    typename detail::method_sig<decltype(Method)>::owner_t* target, enqueue_port port) noexcept
+{
+    using sig = detail::method_sig<decltype(Method)>;
+    return typename sig::handle_t{target, sig::template tramp<Method>(), port};
+}
+
 // Same-worker handle: every call is a direct method call on the caller's thread.
 template <auto Method>
 [[nodiscard]] auto make_direct_handle(
     typename detail::method_sig<decltype(Method)>::owner_t* target) noexcept
 {
-    using sig = detail::method_sig<decltype(Method)>;
-    return typename sig::handle_t{target, sig::template tramp<Method>(), nullptr, nullptr};
+    return make_handle<Method>(target, enqueue_port{});
 }
 
-// Cross-worker handle: every call packs into `out` (the caller->target matrix
-// cell); `notify` is the target worker's wakeable, or null for a spinning target.
+// Cross-worker handle into an SPSC matrix cell (the caller->target edge);
+// `notify` is the target worker's wakeable, or null for a spinning target.
 template <auto Method>
 [[nodiscard]] auto make_enqueue_handle(
     typename detail::method_sig<decltype(Method)>::owner_t* target,
     spsc_ring<dispatch_cmd>& out, wakeable* notify) noexcept
 {
-    using sig = detail::method_sig<decltype(Method)>;
-    return typename sig::handle_t{target, sig::template tramp<Method>(), &out, notify};
+    return make_handle<Method>(
+        target, enqueue_port{.kind = port_kind::spsc_cell, .ring = &out, .notify = notify});
+}
+
+// Cross-worker handle into the target worker's single MPSC inbox.
+template <auto Method>
+[[nodiscard]] auto make_mpsc_handle(
+    typename detail::method_sig<decltype(Method)>::owner_t* target,
+    mpsc_ring<dispatch_cmd>& inbox, wakeable* notify) noexcept
+{
+    return make_handle<Method>(
+        target, enqueue_port{.kind = port_kind::mpsc_inbox, .ring = &inbox, .notify = notify});
 }
 
 } // namespace ufw::core

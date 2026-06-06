@@ -62,17 +62,9 @@ struct inbox_ref<void(Args...)>
         target_t& target = app.get<target_t>(id_);
         unsigned const mine   = app.worker_of(self_->resolved_id());
         unsigned const theirs = app.worker_of(target.resolved_id());
-        if (mine == theirs)
-        {
-            handle_ = core::make_direct_handle<Method>(&target);
-        }
-        else
-        {
-            handle_ = core::make_enqueue_handle<Method>(
-                &target,
-                app.matrix().cell(mine, theirs),
-                app.worker_at(theirs).wakeable_or_null());
-        }
+        // port_for owns the topology AND the dispatcher flavour (matrix cell vs
+        // mpsc inbox vs direct); resolve never names one.
+        handle_ = core::make_handle<Method>(&target, app.port_for(mine, theirs));
     }
 
     // The send. Fire-and-forget; loss-free (cross-worker back-pressure spins).

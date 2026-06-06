@@ -6,6 +6,7 @@ find_package(Threads REQUIRED)
 add_library(ufw_core SHARED
     mem/memory_region.cpp
     mem/memory_region.hpp
+    ring/mpsc_ring.hpp
     ring/sequencer.hpp
     ring/slots.hpp
     ring/spsc_ring.hpp
@@ -23,6 +24,7 @@ add_library(ufw_core SHARED
     exec/poll_source.hpp
     exec/inbox.hpp
     exec/dispatch_matrix.hpp
+    exec/dispatch_mpsc.hpp
     exec/worker.cpp
     exec/worker.hpp
     metrics/metrics.cpp

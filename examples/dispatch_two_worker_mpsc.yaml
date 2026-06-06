@@ -1,0 +1,47 @@
+---
+# Dispatch sandbox, flavour 4: TWO SPINNING WORKERS over the MPSC-INBOX dispatcher
+# (one Vyukov ring per worker instead of the SPSC matrix). Identical actors and
+# topology to dispatch_two_worker.yaml -- ONLY the dispatch: key differs; the two
+# files are the like-for-like flavour comparison.
+application:
+
+  dispatch: mpsc
+
+  workers:
+    - id: 0
+      loop: spinning
+      pin_core: 1
+    - id: 1
+      loop: spinning
+      pin_core: 2
+
+  telemetry:
+    file: dispatch_two_worker_mpsc.metrics
+    interval_ms: 100
+
+  entities:
+    - name: LOGGER
+      config:
+        severity: info
+        pattern: "%(time) | %(log_level:<7) | %(thread_id) | %(logger) - %(message)"
+        timestamp_pattern: "%H:%M:%S.%Qms"
+
+    - name: dispatch_lib
+      loader_ref: LIBRARY
+      config:
+        filename: libdispatch_example.dylib
+        # filename: libdispatch_example.so
+
+    - name: ping
+      loader_ref: PLUGIN
+      config:
+        library_ref: dispatch_lib
+        constructor: pinger_ctor
+
+    - name: pong
+      worker: 1
+      loader_ref: PLUGIN
+      config:
+        library_ref: dispatch_lib
+        constructor: ponger_ctor
+...
