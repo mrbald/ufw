@@ -56,10 +56,11 @@ struct wakeable
 // arrives — the blocking worker's backstop (e.g. an asio io_context run_one). It
 // MUST be wakeable: a parked thread has to be interruptible, if only for clean
 // shutdown (request_stop -> wake). A separate sub-interface of poll_source because
-// a ring cannot block.
+// a ring cannot block. Returns how many useful items the park ran (so work done
+// inside the backstop is visible to utilization telemetry).
 struct blocking_source : poll_source, wakeable
 {
-    virtual void poll_blocking() noexcept = 0;
+    virtual std::size_t poll_blocking() noexcept = 0;
 };
 
 } // namespace ufw::core

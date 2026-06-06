@@ -51,8 +51,14 @@ public:
     worker& operator=(worker&&) = delete;
 
     // --- wiring (single-threaded setup phase, before launch()/run_inline()) ---
-    void add_source(poll_source& source);         // ordered: earlier = higher priority
-    void set_backstop(blocking_source& backstop); // required for loop_kind::blocking
+    void add_source(poll_source& source); // ordered: earlier = higher priority
+
+    // Required for loop_kind::blocking. For a SPINNING worker, cadence_mask sets
+    // how often the backstop is polled: 0 = every turn (right when the io is the
+    // worker's only work source), 2^n-1 = every 2^n-th turn (right when rings are
+    // the latency path — an empty io poll is a syscall the reply path must not
+    // pay; an empty spin turn is ~ns, so io latency stays bounded and tiny).
+    void set_backstop(blocking_source& backstop, std::uint64_t cadence_mask = 0);
 
     // --- lifecycle ---
     void run_inline();            // run the loop on the CALLING thread
@@ -88,6 +94,7 @@ private:
     unsigned const  pin_core_;
     std::vector<poll_source*> sources_; // immutable once the loop runs
     blocking_source* backstop_ = nullptr;
+    std::uint64_t backstop_cadence_mask_ = 0; // spinning only; 0 = poll every turn
     std::atomic<bool> stop_{false};
     std::thread thread_; // empty when run_inline()
 

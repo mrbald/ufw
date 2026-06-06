@@ -1,0 +1,35 @@
+---
+# Dispatch sandbox, flavour 2: SINGLE-THREADED SPINNING — one hot worker busy-polls
+# (and keeps the io_context serviced via its backstop poll). All sends resolve to
+# DIRECT calls; zero rings exist. Expect ~100% of one core while running.
+application:
+
+  workers:
+    - id: 0
+      loop: spinning
+
+  entities:
+    - name: LOGGER
+      config:
+        severity: info
+        pattern: "%(time) | %(log_level:<7) | %(thread_id) | %(logger) - %(message)"
+        timestamp_pattern: "%H:%M:%S.%Qms"
+
+    - name: dispatch_lib
+      loader_ref: LIBRARY
+      config:
+        filename: libdispatch_example.dylib
+        # filename: libdispatch_example.so
+
+    - name: ping
+      loader_ref: PLUGIN
+      config:
+        library_ref: dispatch_lib
+        constructor: pinger_ctor
+
+    - name: pong
+      loader_ref: PLUGIN
+      config:
+        library_ref: dispatch_lib
+        constructor: ponger_ctor
+...

@@ -1,0 +1,42 @@
+---
+# Dispatch sandbox, flavour 3: TWO SPINNING WORKERS — ping on worker 0 (the main
+# thread, which also services the io_context), pong pinned... er, assigned to
+# worker 1. Every ping/pong leg crosses an SPSC cell of the dispatch matrix; the
+# rings break the send cycle, so the actors message freely with no re-posting.
+# pin_core is a hard pin on Linux, a QoS P-core hint on macOS (see sys/affinity).
+application:
+
+  workers:
+    - id: 0
+      loop: spinning
+      pin_core: 1
+    - id: 1
+      loop: spinning
+      pin_core: 2
+
+  entities:
+    - name: LOGGER
+      config:
+        severity: info
+        pattern: "%(time) | %(log_level:<7) | %(thread_id) | %(logger) - %(message)"
+        timestamp_pattern: "%H:%M:%S.%Qms"
+
+    - name: dispatch_lib
+      loader_ref: LIBRARY
+      config:
+        filename: libdispatch_example.dylib
+        # filename: libdispatch_example.so
+
+    - name: ping
+      loader_ref: PLUGIN
+      config:
+        library_ref: dispatch_lib
+        constructor: pinger_ctor
+
+    - name: pong
+      worker: 1
+      loader_ref: PLUGIN
+      config:
+        library_ref: dispatch_lib
+        constructor: ponger_ctor
+...

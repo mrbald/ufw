@@ -81,6 +81,10 @@ public:
 
     [[nodiscard]] explicit operator bool() const noexcept { return obj_ != nullptr; }
 
+    // True for a resolved SAME-WORKER handle (calls run synchronously on the
+    // caller's stack); false for cross-worker enqueue or an unresolved handle.
+    [[nodiscard]] bool direct() const noexcept { return obj_ != nullptr && out_ == nullptr; }
+
 private:
     void*                    obj_    = nullptr;
     trampoline_t             tramp_  = nullptr;
@@ -115,10 +119,10 @@ struct method_sig<void (T::*)(Args...) noexcept> : method_sig<void (T::*)(Args..
 
 // Public deduction aliases (the app-level inbox_ref builds on these; detail:: stays private).
 template <auto Method>
-using method_owner_t = typename detail::method_sig<decltype(Method)>::owner_t;
+using method_owner_t = detail::method_sig<decltype(Method)>::owner_t;
 
 template <auto Method>
-using inbox_handle_for = typename detail::method_sig<decltype(Method)>::handle_t;
+using inbox_handle_for = detail::method_sig<decltype(Method)>::handle_t;
 
 // Same-worker handle: every call is a direct method call on the caller's thread.
 template <auto Method>

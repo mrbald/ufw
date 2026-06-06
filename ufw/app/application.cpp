@@ -212,12 +212,20 @@ void application::wire_workers()
     LOG_INF("wiring {} workers", workers_.size());
     for (auto& worker : workers_)
     {
-        drainers_.push_back(std::make_unique<core::column_drainer>(
-            matrix_->inbound(worker->id()), worker->stats()));
-        worker->add_source(*drainers_.back());
+        auto inbound = matrix_->inbound(worker->id());
+        bool const ring_fed = !inbound.empty();
+        if (ring_fed)
+        {
+            drainers_.push_back(std::make_unique<core::column_drainer>(
+                std::move(inbound), worker->stats()));
+            worker->add_source(*drainers_.back());
+        }
         if (worker->id() == 0 || worker->kind() == core::loop_kind::blocking)
         {
-            worker->set_backstop(*backstop_);
+            // Ring-fed spinners poll the io on a cadence (an empty io poll is a
+            // syscall the reply path must not pay); io-only workers poll it every
+            // turn (it is their sole work source). Blocking workers park in it.
+            worker->set_backstop(*backstop_, ring_fed ? 255 : 0);
         }
     }
 }
@@ -302,36 +310,41 @@ namespace
 constexpr std::size_t dispatch_ring_slots = 4096;
 } // namespace
 
+void application::build_worker_pool(std::vector<worker_config> const& workers)
+{
+    for (std::size_t i = 0; i < workers.size(); ++i)
+    {
+        auto const& worker_cfg = workers[i];
+        if (worker_cfg.id != i)
+        {
+            throw fatal_error("workers: ids must be dense and ordered 0..N-1");
+        }
+        core::loop_kind kind{};
+        if (worker_cfg.loop == "spinning")
+        {
+            kind = core::loop_kind::spinning;
+        }
+        else if (worker_cfg.loop == "blocking")
+        {
+            kind = core::loop_kind::blocking;
+        }
+        else
+        {
+            throw fatal_error("worker loop must be 'spinning' or 'blocking', got: " + worker_cfg.loop);
+        }
+        workers_.push_back(std::make_unique<core::worker>(worker_cfg.id, kind, worker_cfg.pin_core));
+    }
+    matrix_ = std::make_unique<core::dispatch_matrix>(
+        static_cast<unsigned>(workers_.size()), dispatch_ring_slots);
+    backstop_ = std::make_unique<asio_backstop>(context_);
+    LOG_INF("worker pool: {} workers", workers_.size());
+}
+
 void application::load(application_config const& cfg)
 {
     if (!cfg.workers.empty())
     {
-        for (std::size_t i = 0; i < cfg.workers.size(); ++i)
-        {
-            auto const& worker_cfg = cfg.workers[i];
-            if (worker_cfg.id != i)
-            {
-                throw fatal_error("workers: ids must be dense and ordered 0..N-1");
-            }
-            core::loop_kind kind{};
-            if (worker_cfg.loop == "spinning")
-            {
-                kind = core::loop_kind::spinning;
-            }
-            else if (worker_cfg.loop == "blocking")
-            {
-                kind = core::loop_kind::blocking;
-            }
-            else
-            {
-                throw fatal_error("worker loop must be 'spinning' or 'blocking', got: " + worker_cfg.loop);
-            }
-            workers_.push_back(std::make_unique<core::worker>(worker_cfg.id, kind, worker_cfg.pin_core));
-        }
-        matrix_ = std::make_unique<core::dispatch_matrix>(
-            static_cast<unsigned>(workers_.size()), dispatch_ring_slots);
-        backstop_ = std::make_unique<asio_backstop>(context_);
-        LOG_INF("worker pool: {} workers", workers_.size());
+        build_worker_pool(cfg.workers);
     }
 
     for (auto const& entity_cfg: cfg.entities)

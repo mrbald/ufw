@@ -68,6 +68,24 @@ install(TARGETS example EXPORT UfwTargets
     LIBRARY DESTINATION "${INSTALL_LIB_DIR}" COMPONENT shlib)
 
 
+# The dispatch-fabric pipe-rinsing sandbox (see examples/dispatch_*.yaml): one
+# plugin, three execution flavours selected purely by config.
+add_library(dispatch_example SHARED
+    dispatch_example.cpp)
+
+target_compile_features(dispatch_example PRIVATE cxx_std_23)
+
+target_link_libraries(dispatch_example
+    PRIVATE
+        ufw_app
+        ufw::warnings
+        ufw::sanitizers
+        Threads::Threads)
+
+install(TARGETS dispatch_example EXPORT UfwTargets
+    LIBRARY DESTINATION "${INSTALL_LIB_DIR}" COMPONENT shlib)
+
+
 add_executable(ufw_launcher
     main.cpp)
 

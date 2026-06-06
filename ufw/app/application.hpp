@@ -149,6 +149,7 @@ struct application
     // every inbox_ref resolves to a DIRECT handle, zero rings are built, and run()
     // is byte-for-byte the classic single-threaded context_.run() path.
     [[nodiscard]] bool has_worker_pool() const noexcept { return !workers_.empty(); }
+    [[nodiscard]] std::size_t worker_count() const noexcept { return workers_.size(); }
     [[nodiscard]] unsigned worker_of(resolved_entity_id rid) const noexcept
     {
         auto const it = entity_workers_.find(rid);
@@ -182,6 +183,7 @@ private:
     void stop_participants();
     void fini_participants();
 
+    void build_worker_pool(std::vector<worker_config> const& workers); // load(): workers + matrix
     void wire_workers(); // post-init: column drainers + backstops onto the workers
 
     boost::asio::io_context context_;
@@ -194,11 +196,14 @@ private:
     std::vector<std::reference_wrapper<lifecycle_participant>> lifecycle_participants_;
 
     // --- the opt-in dispatch fabric (absent without a `workers:` block) ---
-    std::vector<std::unique_ptr<core::worker>> workers_;
+    // Declaration order is load-bearing: workers_ LAST, so it destructs FIRST —
+    // a worker's dtor (and a still-running loop) touches its drainers and the
+    // backstop, which must therefore outlive it.
+    std::map<resolved_entity_id, unsigned> entity_workers_;
     std::unique_ptr<core::dispatch_matrix> matrix_;
     std::unique_ptr<asio_backstop> backstop_;
     std::vector<std::unique_ptr<core::column_drainer>> drainers_;
-    std::map<resolved_entity_id, unsigned> entity_workers_; // absent rid => worker 0
+    std::vector<std::unique_ptr<core::worker>> workers_; // absent rid => worker 0
 
     ENTITY_LOGGER;
 

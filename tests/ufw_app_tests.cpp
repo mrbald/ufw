@@ -68,9 +68,9 @@ struct echo_actor final : ufw::entity, ufw::lifecycle_participant
         ++calls;
     }
 
-    void init() override { self_inbox.resolve(); }
+    void init() override { self_inbox.resolve<&echo_actor::on_msg>(); }
 
-    ufw::inbox_ref<&echo_actor::on_msg> self_inbox;
+    ufw::inbox_ref<void(int)> self_inbox;
     int sum = 0;
     int calls = 0;
 };

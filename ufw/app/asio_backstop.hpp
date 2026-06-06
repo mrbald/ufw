@@ -3,8 +3,9 @@
  * ALv2 (http://www.apache.org/licenses/LICENSE-2.0)
  *
  * The boost::asio io_context as a worker's backstop (ufw/core/exec/poll_source.hpp):
- *   - poll()          non-blocking drain of ready handlers — a SPINNING worker calls
- *                     this each turn so signals/timers/posts stay serviced;
+ *   - poll()          poll_one(): at most ONE ready handler — the poll_source
+ *                     contract is a BOUNDED unit (a chain of self-posting handlers
+ *                     must not swallow the loop turn or starve the ring drains);
  *   - poll_blocking() run_one(): the BLOCKING worker's park — returns on IO, on a
  *                     posted handler, or on wake();
  *   - wake()          post a no-op handler to unpark run_one() (this is what lets a
@@ -31,8 +32,8 @@ class asio_backstop final : public core::blocking_source
 public:
     explicit asio_backstop(boost::asio::io_context& ctx) noexcept: ctx_{&ctx} {}
 
-    std::size_t poll() noexcept override { return ctx_->poll(); }
-    void poll_blocking() noexcept override { ctx_->run_one(); }
+    std::size_t poll() noexcept override { return ctx_->poll_one(); }
+    std::size_t poll_blocking() noexcept override { return ctx_->run_one(); }
     void wake() noexcept override { boost::asio::post(*ctx_, [] {}); }
 
 private:

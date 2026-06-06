@@ -13,8 +13,14 @@ namespace ufw::core {
 
 worker::~worker()
 {
-    request_stop();
-    join();
+    // Safety net for a launched-but-never-joined worker only. When the loop was
+    // already stopped and joined (the normal path), do NOTHING — in particular do
+    // not wake() a backstop that may be destructing alongside us.
+    if (thread_.joinable())
+    {
+        request_stop();
+        join();
+    }
 }
 
 void worker::add_source(poll_source& source)
@@ -22,9 +28,10 @@ void worker::add_source(poll_source& source)
     sources_.push_back(&source);
 }
 
-void worker::set_backstop(blocking_source& backstop)
+void worker::set_backstop(blocking_source& backstop, std::uint64_t cadence_mask)
 {
     backstop_ = &backstop;
+    backstop_cadence_mask_ = cadence_mask;
 }
 
 void worker::run_inline()
@@ -79,7 +86,10 @@ void worker::wake() noexcept
     // spinners: nothing to do — they re-poll unconditionally
 }
 
-// Hot: drain every source each turn; PAUSE/YIELD when nothing did work.
+// Hot: drain every source each turn; PAUSE/YIELD when nothing did work. The
+// backstop (if any) is polled on its wiring-time cadence (see set_backstop) —
+// an "idle" turn is exactly when a reply is in flight, so the io poll must never
+// sit on the reply path of a ring-fed worker.
 void worker::loop_spinning() noexcept
 {
     while (!stop_.load(std::memory_order_relaxed))
@@ -89,9 +99,9 @@ void worker::loop_spinning() noexcept
         {
             did += source->poll();
         }
-        if (backstop_ != nullptr)
+        if (backstop_ != nullptr && (stats_.iterations & backstop_cadence_mask_) == 0)
         {
-            did += backstop_->poll(); // non-blocking poll of the backstop, if any
+            did += backstop_->poll(); // bounded: at most one handler per turn
         }
         ++stats_.iterations;
         if (did != 0)
@@ -106,7 +116,8 @@ void worker::loop_spinning() noexcept
 }
 
 // Cool: drain every source once; if nothing did work, park in the backstop until
-// IO arrives or a remote producer (or request_stop) wake()s us.
+// IO arrives or a remote producer (or request_stop) wake()s us. Work the park ran
+// counts as useful (it IS the blocking flavour's work).
 void worker::loop_blocking() noexcept
 {
     while (!stop_.load(std::memory_order_relaxed))
@@ -116,13 +127,15 @@ void worker::loop_blocking() noexcept
         {
             did += source->poll();
         }
+        if (did == 0)
+        {
+            did += backstop_->poll_blocking();
+        }
         ++stats_.iterations;
         if (did != 0)
         {
             ++stats_.useful_iters;
-            continue; // work pending: re-drain before considering a park
         }
-        backstop_->poll_blocking();
     }
 }
 

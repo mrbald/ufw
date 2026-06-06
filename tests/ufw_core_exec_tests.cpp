@@ -239,11 +239,12 @@ struct condvar_backstop final : ufw::core::blocking_source
     bool poked = false;
 
     std::size_t poll() noexcept override { return 0; } // nothing pollable here
-    void poll_blocking() noexcept override
+    std::size_t poll_blocking() noexcept override
     {
         std::unique_lock lock{m};
         cv.wait(lock, [this] { return poked; });
         poked = false;
+        return 0; // the park itself runs nothing; the re-drain finds the work
     }
     void wake() noexcept override
     {
