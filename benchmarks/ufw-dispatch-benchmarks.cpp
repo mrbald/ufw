@@ -12,13 +12,16 @@
 #include <benchmark/benchmark.h>
 
 #include <ufw/core/exec/dispatch_matrix.hpp>
+#include <ufw/core/exec/dispatch_mpsc.hpp>
 #include <ufw/core/exec/inbox.hpp>
 #include <ufw/core/exec/worker.hpp>
 #include <ufw/core/sys/affinity.hpp>
 #include <ufw/core/sys/cpu.hpp>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <thread>
 #include <span>
 #include <vector>
 
@@ -32,6 +35,9 @@ using ufw::core::inbox_handle;
 using ufw::core::loop_kind;
 using ufw::core::make_direct_handle;
 using ufw::core::make_enqueue_handle;
+using ufw::core::make_mpsc_handle;
+using ufw::core::mpsc_drainer;
+using ufw::core::mpsc_ring;
 using ufw::core::pin_thread;
 using ufw::core::worker;
 
@@ -204,16 +210,197 @@ void dispatch_cross_worker_throughput(benchmark::State& state)
 }
 BENCHMARK(dispatch_cross_worker_throughput)->UseRealTime();
 
+// MPSC mirror of dispatch_cross_worker_rtt: one Vyukov inbox per side instead of
+// two matrix cells. Uncontended (one in-flight message), so this isolates the
+// flavour's per-hop cost: CAS claim + seq publish vs the SPSC claim/publish.
+void dispatch_mpsc_rtt(benchmark::State& state)
+{
+    pin_thread(0);
+    mpsc_ring<dispatch_cmd> to_echo{1024};  // worker 1's inbox
+    mpsc_ring<dispatch_cmd> to_bench{1024}; // this thread's inbox
+
+    struct sink
+    {
+        std::uint64_t last = 0;
+        void on_reply(std::uint64_t v) noexcept { last = v; }
+    };
+    struct echo
+    {
+        inbox_handle<void(std::uint64_t)> reply;
+        void on_ping(std::uint64_t v) noexcept { reply(v); }
+    };
+
+    sink s;
+    echo e;
+    auto const ping = make_mpsc_handle<&echo::on_ping>(&e, to_echo, nullptr);
+    e.reply = make_mpsc_handle<&sink::on_reply>(&s, to_bench, nullptr);
+
+    worker w1{1, loop_kind::spinning, 2};
+    mpsc_drainer drainer{to_echo, w1.stats()};
+    w1.add_source(drainer);
+    w1.launch();
+
+    std::uint64_t i = 1;
+    for (auto _ : state)
+    {
+        ping(i);
+        while (!to_bench.ready()) // drain our own inbound until the reply lands
+        {
+            cpu_relax();
+        }
+        (void)to_bench.drain([](dispatch_cmd const& cmd) { cmd.tramp(cmd.obj, cmd); }, 16);
+        benchmark::DoNotOptimize(s.last);
+        ++i;
+    }
+    w1.request_stop();
+    w1.join();
+    state.SetItemsProcessed(state.iterations());
+}
+BENCHMARK(dispatch_mpsc_rtt)->UseRealTime();
+
+// MPSC mirror of dispatch_cross_worker_throughput: single uncontended producer.
+void dispatch_mpsc_throughput(benchmark::State& state)
+{
+    pin_thread(0);
+    mpsc_ring<dispatch_cmd> inbox{4096};
+    bench_actor target;
+    auto const send = make_mpsc_handle<&bench_actor::on_msg>(&target, inbox, nullptr);
+
+    worker w1{1, loop_kind::spinning, 2};
+    mpsc_drainer drainer{inbox, w1.stats()};
+    w1.add_source(drainer);
+    w1.launch();
+
+    std::uint64_t i = 0;
+    for (auto _ : state)
+    {
+        send(i++);
+    }
+    w1.request_stop();
+    w1.join();
+    state.SetItemsProcessed(state.iterations());
+}
+BENCHMARK(dispatch_mpsc_throughput)->UseRealTime();
+
+// THE DISCRIMINATOR: this thread's send cost while Arg(0) background producers
+// blast the SAME consumer. Matrix: every producer owns a private SPSC cell, so a
+// sender never contends with other senders (only the consumer scans more cells).
+// MPSC: all producers CAS the same enqueue cursor. consumed/s counts the
+// consumer's aggregate drain rate over the same wall-clock.
+void dispatch_fanin_send_matrix(benchmark::State& state)
+{
+    auto const background = static_cast<unsigned>(state.range(0));
+    pin_thread(0);
+    dispatch_matrix matrix{2 + background, 4096};
+    bench_actor target;
+    // materialize every producer's cell BEFORE the drainer snapshots the column
+    auto const send = make_enqueue_handle<&bench_actor::on_msg>(&target, matrix.cell(0, 1), nullptr);
+    std::vector<inbox_handle<void(std::uint64_t)>> bg_handles;
+    for (unsigned j = 0; j < background; ++j)
+    {
+        bg_handles.push_back(make_enqueue_handle<&bench_actor::on_msg>(
+            &target, matrix.cell(2 + j, 1), nullptr));
+    }
+    worker w1{1, loop_kind::spinning, 2};
+    column_drainer drainer{matrix.inbound(1), w1.stats()};
+    w1.add_source(drainer);
+    w1.launch();
+
+    std::atomic<bool> stop{false};
+    std::vector<std::thread> producers;
+    for (unsigned j = 0; j < background; ++j)
+    {
+        producers.emplace_back([&stop, handle = bg_handles[j]]
+        {
+            std::uint64_t v = 0;
+            while (!stop.load(std::memory_order_relaxed))
+            {
+                handle(v++);
+            }
+        });
+    }
+
+    std::uint64_t i = 0;
+    for (auto _ : state)
+    {
+        send(i++);
+    }
+    stop.store(true);
+    for (auto& t : producers)
+    {
+        t.join();
+    }
+    w1.request_stop();
+    w1.join();
+    state.SetItemsProcessed(state.iterations());
+    state.counters["consumed/s"] =
+        benchmark::Counter(static_cast<double>(w1.stats().dispatched.load()),
+                           benchmark::Counter::kIsRate);
+}
+BENCHMARK(dispatch_fanin_send_matrix)->Arg(0)->Arg(3)->UseRealTime();
+
+void dispatch_fanin_send_mpsc(benchmark::State& state)
+{
+    auto const background = static_cast<unsigned>(state.range(0));
+    pin_thread(0);
+    mpsc_ring<dispatch_cmd> inbox{4096};
+    bench_actor target;
+    auto const send = make_mpsc_handle<&bench_actor::on_msg>(&target, inbox, nullptr);
+
+    worker w1{1, loop_kind::spinning, 2};
+    mpsc_drainer drainer{inbox, w1.stats()};
+    w1.add_source(drainer);
+    w1.launch();
+
+    std::atomic<bool> stop{false};
+    std::vector<std::thread> producers;
+    for (unsigned j = 0; j < background; ++j)
+    {
+        producers.emplace_back([&stop, send]
+        {
+            std::uint64_t v = 0;
+            while (!stop.load(std::memory_order_relaxed))
+            {
+                send(v++); // handles are values; copies share the port
+            }
+        });
+    }
+
+    std::uint64_t i = 0;
+    for (auto _ : state)
+    {
+        send(i++);
+    }
+    stop.store(true);
+    for (auto& t : producers)
+    {
+        t.join();
+    }
+    w1.request_stop();
+    w1.join();
+    state.SetItemsProcessed(state.iterations());
+    state.counters["consumed/s"] =
+        benchmark::Counter(static_cast<double>(w1.stats().dispatched.load()),
+                           benchmark::Counter::kIsRate);
+}
+BENCHMARK(dispatch_fanin_send_mpsc)->Arg(0)->Arg(3)->UseRealTime();
+
 } // namespace
 
 // <<<BENCHMARK RESULTS — regenerated by tools/bench.py; do not edit below>>>
 // platform: Darwin arm64 | build: build/Release | filter: dispatch_
 // Benchmark                                           Time             CPU   Iterations UserCounters...
 // -----------------------------------------------------------------------------------------------------
-// dispatch_virtual_baseline                       0.744 ns        0.744 ns    751728304 items_per_second=1.34368G/s
-// dispatch_direct_call                            0.283 ns        0.283 ns   2165556819 items_per_second=3.53526G/s
-// dispatch_empty_drain_turn/1                      1.74 ns         1.74 ns    322368951 items_per_second=575.818M/s
-// dispatch_empty_drain_turn/4                      5.65 ns         5.65 ns     93981808 items_per_second=177.136M/s
-// dispatch_cross_worker_rtt/real_time              94.0 ns         94.0 ns      5330858 items_per_second=10.6358M/s
-// dispatch_cross_worker_throughput/real_time       25.6 ns         25.6 ns     22249177 items_per_second=39.0464M/s
+// dispatch_virtual_baseline                       0.744 ns        0.744 ns    752506114 items_per_second=1.3445G/s
+// dispatch_direct_call                             2.03 ns         2.03 ns    277063131 items_per_second=492.836M/s
+// dispatch_empty_drain_turn/1                      1.80 ns         1.80 ns    311119753 items_per_second=554.305M/s
+// dispatch_empty_drain_turn/4                      6.32 ns         6.32 ns     97611992 items_per_second=158.348M/s
+// dispatch_cross_worker_rtt/real_time               164 ns          164 ns      3424306 items_per_second=6.09515M/s
+// dispatch_cross_worker_throughput/real_time       24.5 ns         24.5 ns     22842785 items_per_second=40.7424M/s
+// dispatch_mpsc_rtt/real_time                       158 ns          158 ns      3546249 items_per_second=6.31193M/s
+// dispatch_mpsc_throughput/real_time               33.9 ns         33.9 ns     16499229 items_per_second=29.4573M/s
+// dispatch_fanin_send_matrix/0/real_time           24.5 ns         24.5 ns     22839275 consumed/s=40.8366M/s items_per_second=40.8366M/s
+// dispatch_fanin_send_matrix/3/real_time           14.4 ns         14.4 ns     37365582 consumed/s=355.191M/s items_per_second=69.424M/s
+// dispatch_fanin_send_mpsc/0/real_time             35.8 ns         35.8 ns     16286507 consumed/s=27.9145M/s items_per_second=27.9145M/s
+// dispatch_fanin_send_mpsc/3/real_time              356 ns          356 ns      1470553 consumed/s=11.5034M/s items_per_second=2.808M/s
 // <<<END BENCHMARK RESULTS>>>
