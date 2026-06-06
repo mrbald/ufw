@@ -92,12 +92,15 @@ struct pinger final : ufw::entity, ufw::lifecycle_participant
         for (unsigned w = 0; w < app().worker_count(); ++w)
         {
             auto const& s = app().worker_at(w).stats();
+            auto const iterations = s.iterations.load();
+            auto const useful     = s.useful_iters.load();
+            auto const dispatched = s.dispatched.load();
             LOG_INF("worker {}: iterations={} useful={} utilization={}% dispatched={} latency mean={} ns max={} ns",
-                    w, s.iterations, s.useful_iters,
-                    s.iterations != 0 ? 100 * s.useful_iters / s.iterations : 0,
-                    s.dispatched,
-                    s.dispatched != 0 ? ufw::core::ticks_to_ns(s.dispatch_ticks_sum) / s.dispatched : 0,
-                    ufw::core::ticks_to_ns(s.dispatch_ticks_max));
+                    w, iterations, useful,
+                    iterations != 0 ? 100 * useful / iterations : 0,
+                    dispatched,
+                    dispatched != 0 ? ufw::core::ticks_to_ns(s.dispatch_ticks_sum.load()) / dispatched : 0,
+                    ufw::core::ticks_to_ns(s.dispatch_ticks_max.load()));
         }
     }
 

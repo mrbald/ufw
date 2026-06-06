@@ -99,14 +99,15 @@ void worker::loop_spinning() noexcept
         {
             did += source->poll();
         }
-        if (backstop_ != nullptr && (stats_.iterations & backstop_cadence_mask_) == 0)
+        if (backstop_ != nullptr
+            && (stats_.iterations.load(std::memory_order_relaxed) & backstop_cadence_mask_) == 0)
         {
             did += backstop_->poll(); // bounded: at most one handler per turn
         }
-        ++stats_.iterations;
+        stat_add(stats_.iterations, 1);
         if (did != 0)
         {
-            ++stats_.useful_iters;
+            stat_add(stats_.useful_iters, 1);
         }
         else
         {
@@ -131,10 +132,10 @@ void worker::loop_blocking() noexcept
         {
             did += backstop_->poll_blocking();
         }
-        ++stats_.iterations;
+        stat_add(stats_.iterations, 1);
         if (did != 0)
         {
-            ++stats_.useful_iters;
+            stat_add(stats_.useful_iters, 1);
         }
     }
 }

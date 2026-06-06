@@ -120,14 +120,14 @@ public:
                 if (cmd.stamp != 0 && now > cmd.stamp) // guard against cross-core counter skew
                 {
                     std::uint64_t const lat = now - cmd.stamp;
-                    stats_->dispatch_ticks_sum += lat;
-                    stats_->dispatch_ticks_max = std::max(stats_->dispatch_ticks_max, lat);
+                    stat_add(stats_->dispatch_ticks_sum, lat);
+                    stat_max(stats_->dispatch_ticks_max, lat);
                 }
             }
             ring->release(run.size());
             did += run.size();
         }
-        stats_->dispatched += did;
+        stat_add(stats_->dispatched, did);
         return did;
     }
 

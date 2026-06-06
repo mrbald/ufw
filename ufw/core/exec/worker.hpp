@@ -25,16 +25,30 @@ namespace ufw::core {
 enum class loop_kind : std::uint8_t { spinning, blocking };
 
 // Inline telemetry. SINGLE-WRITER: only the worker's own thread (via its loop and
-// its sources) may write. Read after stop()/join() — the live-snapshot story is the
-// future telemetry subsystem's job, not this POD's.
+// its sources) may write — via stat_add/stat_max below, a relaxed load+store
+// (never an RMW) that compiles to the same plain add as a non-atomic field while
+// making the telemetry sampler's cross-thread reads well-defined.
 struct alignas(cache_line) worker_stats
 {
-    std::uint64_t iterations         = 0; // loop turns
-    std::uint64_t useful_iters       = 0; // turns where some source did work
-    std::uint64_t dispatched         = 0; // commands executed on this worker
-    std::uint64_t dispatch_ticks_sum = 0; // enqueue->drain ticks (cross-worker sends only)
-    std::uint64_t dispatch_ticks_max = 0;
+    std::atomic<std::uint64_t> iterations{0};         // loop turns
+    std::atomic<std::uint64_t> useful_iters{0};       // turns where some source did work
+    std::atomic<std::uint64_t> dispatched{0};         // commands executed on this worker
+    std::atomic<std::uint64_t> dispatch_ticks_sum{0}; // enqueue->drain ticks (cross-worker sends)
+    std::atomic<std::uint64_t> dispatch_ticks_max{0};
 };
+
+// Single-writer accumulators for stats fields (see worker_stats).
+inline void stat_add(std::atomic<std::uint64_t>& stat, std::uint64_t n) noexcept
+{
+    stat.store(stat.load(std::memory_order_relaxed) + n, std::memory_order_relaxed);
+}
+inline void stat_max(std::atomic<std::uint64_t>& stat, std::uint64_t v) noexcept
+{
+    if (v > stat.load(std::memory_order_relaxed))
+    {
+        stat.store(v, std::memory_order_relaxed);
+    }
+}
 
 inline constexpr unsigned no_pin = ~0U; // "do not pin" sentinel for pin_core
 

@@ -14,6 +14,8 @@ add_library(ufw_core SHARED
     sys/affinity.cpp
     sys/affinity.hpp
     sys/cpu.hpp
+    sys/thread_usage.cpp
+    sys/thread_usage.hpp
     sys/timing.cpp
     sys/timing.hpp
     exec/command.hpp

@@ -14,6 +14,7 @@
 #include <ufw/core/exec/worker.hpp>
 #include <ufw/core/ring/spsc_ring.hpp>
 #include <ufw/core/sys/cpu.hpp>
+#include <ufw/core/sys/thread_usage.hpp>
 #include <ufw/core/sys/timing.hpp>
 
 #include <atomic>
@@ -325,5 +326,40 @@ BOOST_AUTO_TEST_CASE(single_thread_collapse_runs_inline_with_zero_rings)
 }
 
 BOOST_AUTO_TEST_SUITE_END(/* ufw_core_worker_matrix */)
+
+BOOST_AUTO_TEST_SUITE(ufw_core_thread_usage)
+
+// The sampler contract: capture the handle ON the observed thread, sample it from
+// ANOTHER thread (here: the test main thread plays the 1Hz sampler).
+BOOST_AUTO_TEST_CASE(samples_another_threads_cpu_from_outside)
+{
+    std::atomic<ufw::core::thread_cpu_handle> handle{};
+    std::atomic<bool> stop{false};
+    std::thread burner([&handle, &stop]
+    {
+        handle.store(ufw::core::current_thread_cpu_handle());
+        while (!stop.load(std::memory_order_relaxed)) { /* burn cpu */ }
+    });
+    while (handle.load().value == 0)
+    {
+        std::this_thread::yield();
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    auto const cpu = ufw::core::sample_thread_cpu(handle.load());
+    stop.store(true);
+    burner.join();
+
+    BOOST_TEST(cpu.total_ns > 20'000'000U); // burned a good chunk of the ~100ms window
+    BOOST_TEST(ufw::core::sample_thread_cpu({}).total_ns == 0U); // null handle is inert
+}
+
+BOOST_AUTO_TEST_CASE(process_usage_is_populated)
+{
+    auto const usage = ufw::core::sample_process_usage();
+    BOOST_TEST(usage.maxrss_bytes > 1'000'000U); // the test binary surely exceeds 1MB
+    BOOST_TEST(usage.user_ns > 0U);
+}
+
+BOOST_AUTO_TEST_SUITE_END(/* ufw_core_thread_usage */)
 
 } // namespace
